@@ -666,7 +666,6 @@ void BrowserPage::prepare(LayoutRect bounds, bool active, bool roundCorner) {
   stampFocusKeys(*m_sidebar.bundle());
   // Panes are part of the flush content plane; the split view marks the active pane with the window's top bar.
   m_body->clearBorder();
-  m_body->setVisible(!overlay());
   if (roundCorner) {
     m_body->setStyleRadii(Radii(Style::radiusXl, 0, 0, 0));
   } else {
@@ -2501,6 +2500,7 @@ void BrowserPage::layoutFrame(Renderer& renderer) {
   m_root->arrange(
       renderer, LayoutRect{0, 0, static_cast<float>(m_surface->width()), static_cast<float>(m_surface->height())}
   );
+  // A translucent overlay (background_opacity below 1) would otherwise show the panes through it.
   m_body->setVisible(!overlay());
   m_body->arrange(renderer, m_pageBounds);
   m_archiveController.layout(renderer, m_pageBounds);
