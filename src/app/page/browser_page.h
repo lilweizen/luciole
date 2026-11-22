@@ -393,12 +393,8 @@ private:
   luciole::BrowserSettings m_savedSettings;
   // The open dialog's tier; unset while a menu or nothing is shown.
   std::optional<DialogWidth> m_dialogTier;
-  // The dialog's top edge in window coordinates and the window height it was placed for.
-  std::optional<float> m_dialogTop;
-  float m_dialogWindowHeight = 0.0F;
   RectNode* m_dialogShadow = nullptr;
   std::optional<std::pair<int, int>> m_dialogPosition;
-  bool m_dialogResizePending = false;
   luciole::PinService& m_pins;
   luciole::FolderViewService* m_folderViews; // nullptr in file pickers, which keep their own sort and view mode.
   luciole::DriveMonitor& m_drives;
