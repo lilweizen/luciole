@@ -14,6 +14,8 @@ namespace luciole {
     static Location trash();
     static Location network();
     bool isNetworkDiscovery() const;
+    // MTP or PTP device root; GVFS lists it empty while the device is locked or not in file transfer mode.
+    bool isDeviceRoot() const;
 
     const std::string& uri() const { return m_uri; }
     std::optional<std::string> nativePath() const;

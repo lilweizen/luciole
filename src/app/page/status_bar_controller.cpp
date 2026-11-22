@@ -219,9 +219,7 @@ void StatusBarController::sync(bool miller) {
             "You can still connect by entering a server address in the location bar."
         };
       }
-      if (snapshot.location
-          && (snapshot.location->uri().starts_with("mtp:") || snapshot.location->uri().starts_with("gphoto2:"))
-          && !snapshot.location->parent().has_value()) {
+      if (snapshot.location && snapshot.location->isDeviceRoot()) {
         return {
             "device-mobile", "Device locked or transfer disabled",
             "Unlock your phone and select “File transfer” (MTP) in the USB settings."

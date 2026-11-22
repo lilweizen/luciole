@@ -426,14 +426,12 @@ void MillerView::doLayout(Renderer& renderer) {
     const auto& snapshot = model.snapshot();
     loadPending = loadPending || snapshot.status == luciole::DirectoryStatus::Idle;
     const bool empty = model.rows().empty();
-    const bool isMtpRoot = snapshot.location
-        && (snapshot.location->uri().starts_with("mtp:") || snapshot.location->uri().starts_with("gphoto2:"))
-        && !snapshot.location->parent().has_value();
+    const bool deviceRoot = snapshot.location && snapshot.location->isDeviceRoot();
     view.notice->setText(
         snapshot.status == luciole::DirectoryStatus::Loading || snapshot.status == luciole::DirectoryStatus::Idle
             ? "Loading…"
             : snapshot.error ? snapshot.error->message
-            : isMtpRoot      ? "Device locked: unlock for file transfer"
+            : deviceRoot     ? "Device locked or transfer disabled"
                              : "This folder is empty"
     );
     view.notice->setVisible(empty);
