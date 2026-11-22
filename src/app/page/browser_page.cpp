@@ -2511,7 +2511,7 @@ void BrowserPage::layoutFrame(Renderer& renderer) {
   const bool columnOrderChanged = m_detailsHeader.applyOrder();
   m_titlebar->setVisible(clientHeader);
   m_titlebar->setParticipatesInLayout(clientHeader);
-  const bool details = m_viewMode == luciole::ViewMode::List;
+  const bool details = m_viewMode == luciole::ViewMode::List && !browser().model().rows().empty();
   // List headers own their vertical insets so their labels and resize
   // markers are centered between the pane edge and the header rule.
   m_paneContentFrame->setPadding(
