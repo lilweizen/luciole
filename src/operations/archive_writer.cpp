@@ -16,16 +16,37 @@ namespace {
   using namespace luciole;
   using namespace luciole::archive_work;
   namespace fs = std::filesystem;
-  int addFilter(struct archive* writer, ArchiveCompression compression) {
+  int addFilter(struct archive* writer, ArchiveCompression compression, ArchiveCompressionLevel level) {
     switch (compression) {
     case ArchiveCompression::None:
       return archive_write_add_filter_none(writer);
-    case ArchiveCompression::Gzip:
-      return archive_write_add_filter_gzip(writer);
-    case ArchiveCompression::Bzip2:
-      return archive_write_add_filter_bzip2(writer);
-    case ArchiveCompression::Zstd:
-      return archive_write_add_filter_zstd(writer);
+    case ArchiveCompression::Gzip: {
+      const auto status = archive_write_add_filter_gzip(writer);
+      if (status != ARCHIVE_OK) {
+        return status;
+      }
+      const char* value =
+          level == ArchiveCompressionLevel::Fast ? "1" : (level == ArchiveCompressionLevel::Maximum ? "9" : "6");
+      return archive_write_set_filter_option(writer, "gzip", "compression-level", value);
+    }
+    case ArchiveCompression::Bzip2: {
+      const auto status = archive_write_add_filter_bzip2(writer);
+      if (status != ARCHIVE_OK) {
+        return status;
+      }
+      const char* value =
+          level == ArchiveCompressionLevel::Fast ? "1" : (level == ArchiveCompressionLevel::Maximum ? "9" : "6");
+      return archive_write_set_filter_option(writer, "bzip2", "compression-level", value);
+    }
+    case ArchiveCompression::Zstd: {
+      const auto status = archive_write_add_filter_zstd(writer);
+      if (status != ARCHIVE_OK) {
+        return status;
+      }
+      const char* value =
+          level == ArchiveCompressionLevel::Fast ? "1" : (level == ArchiveCompressionLevel::Maximum ? "19" : "3");
+      return archive_write_set_filter_option(writer, "zstd", "compression-level", value);
+    }
     case ArchiveCompression::Xz: {
       // Never register libarchive's external xz helper fallback. Fix encoder
       // memory use independently of machine core count or user environment.
@@ -36,15 +57,23 @@ namespace {
       if (status != ARCHIVE_OK) {
         return status;
       }
-      const auto level = archive_write_set_filter_option(writer, "xz", "compression-level", "6");
-      return level == ARCHIVE_OK ? archive_write_set_filter_option(writer, "xz", "threads", "1") : level;
+      const char* value =
+          level == ArchiveCompressionLevel::Fast ? "1" : (level == ArchiveCompressionLevel::Maximum ? "9" : "6");
+      const auto opt = archive_write_set_filter_option(writer, "xz", "compression-level", value);
+      return opt == ARCHIVE_OK ? archive_write_set_filter_option(writer, "xz", "threads", "1") : opt;
     }
     }
     return ARCHIVE_FATAL;
   }
-  int setFormat(struct archive* writer, ArchiveFormat format) {
+  int setFormat(struct archive* writer, ArchiveFormat format, ArchiveCompressionLevel level) {
     if (format == ArchiveFormat::Zip) {
-      return archive_write_set_format_zip(writer);
+      const auto status = archive_write_set_format_zip(writer);
+      if (status != ARCHIVE_OK) {
+        return status;
+      }
+      const char* value =
+          level == ArchiveCompressionLevel::Fast ? "1" : (level == ArchiveCompressionLevel::Maximum ? "9" : "6");
+      return archive_write_set_format_option(writer, "zip", "compression-level", value);
     }
     if (format != ArchiveFormat::SevenZip) {
       return archive_write_set_format_pax_restricted(writer);
@@ -57,7 +86,9 @@ namespace {
       status = archive_write_set_format_option(writer, "7zip", "compression", "lzma2");
     }
     if (status == ARCHIVE_OK) {
-      status = archive_write_set_format_option(writer, "7zip", "compression-level", "6");
+      const char* value =
+          level == ArchiveCompressionLevel::Fast ? "1" : (level == ArchiveCompressionLevel::Maximum ? "9" : "6");
+      status = archive_write_set_format_option(writer, "7zip", "compression-level", value);
     }
     if (status == ARCHIVE_OK) {
       status = archive_write_set_format_option(writer, "7zip", "threads", "1");
@@ -97,15 +128,18 @@ namespace {
     // One buffer per job, rather than a large stack frame for every nested folder.
     std::array<char, 65536> buffer{};
     std::unique_ptr<struct archive, decltype(&archive_write_free)> value{archive_write_new(), &archive_write_free};
-    Writer(const std::string& filename, const ArchiveFormatInfo& format, Work& request, const Passwords& passwords)
+    Writer(
+        const std::string& filename, const ArchiveFormatInfo& format, ArchiveCompressionLevel level, Work& request,
+        const Passwords& passwords
+    )
         : work(request),
           output(opened(::open(filename.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600))) {
-      requireArchive(setFormat(value.get(), format.format), value.get(), work);
+      requireArchive(setFormat(value.get(), format.format, level), value.get(), work);
       if (format.format == ArchiveFormat::Zip && !passwords.values.empty()) {
         requireArchive(archive_write_set_options(value.get(), "zip:encryption=aes256"), value.get(), work);
         requireArchive(archive_write_set_passphrase(value.get(), passwords.values.back().c_str()), value.get(), work);
       }
-      requireArchive(addFilter(value.get(), format.compression), value.get(), work);
+      requireArchive(addFilter(value.get(), format.compression, level), value.get(), work);
       requireArchive(archive_write_set_bytes_per_block(value.get(), 0), value.get(), work);
       requireArchive(
           archive_write_open(
@@ -257,6 +291,8 @@ bool luciole::archiveEncryptionAvailable() {
   return available;
 }
 
+bool luciole::archiveCompressionLevelAvailable(ArchiveFormat format) { return format != ArchiveFormat::Tar; }
+
 std::optional<std::string> luciole::archivePasswordProblem(std::string_view password, ArchiveFormat format) {
   if (password.size() > 1024 || password.contains('\0')) {
     return "Use a password of at most 1024 bytes without NUL characters.";
@@ -286,8 +322,8 @@ std::span<const luciole::ArchiveFormatInfo> luciole::archiveFormats() {
       const std::unique_ptr<struct archive, decltype(&archive_write_free)> writer(
           archive_write_new(), &archive_write_free
       );
-      const auto format = setFormat(writer.get(), item.format);
-      const auto filter = addFilter(writer.get(), item.compression);
+      const auto format = setFormat(writer.get(), item.format, ArchiveCompressionLevel::Balanced);
+      const auto filter = addFilter(writer.get(), item.compression, ArchiveCompressionLevel::Balanced);
       if (format == ARCHIVE_OK && filter == ARCHIVE_OK) {
         result.push_back(item);
       }
@@ -297,8 +333,9 @@ std::span<const luciole::ArchiveFormatInfo> luciole::archiveFormats() {
   return formats;
 }
 luciole::archive_work::Prepared luciole::archive_work::compress(
-    const std::vector<Location>& sources, const Location& destination, ArchiveFormat format, ArchiveLimits limits,
-    const CancelToken& cancel, Progress& progress, const Passwords& passwords
+    const std::vector<Location>& sources, const Location& destination, ArchiveFormat format,
+    ArchiveCompressionLevel level, ArchiveLimits limits, const CancelToken& cancel, Progress& progress,
+    const Passwords& passwords
 ) {
   const ArchiveLocale locale;
   auto work = workFor(limits, cancel, progress);
@@ -314,7 +351,7 @@ luciole::archive_work::Prepared luciole::archive_work::compress(
   (void)parent;
   Stage stage;
   const auto output = fs::path(stage.path) / name;
-  Writer writer(output.native(), *descriptor, work, passwords);
+  Writer writer(output.native(), *descriptor, level, work, passwords);
   std::set<std::string> names;
   for (const auto& source : sources) {
     if (source == destination) {

@@ -15,7 +15,10 @@ class ArchiveDialog final : public Flex {
 public:
   ArchiveDialog(
       bool compress, std::string name, std::string destination,
-      std::function<std::string(const std::string&, const std::string&, luciole::ArchiveFormat, const std::string&)>
+      std::function<std::string(
+          const std::string&, const std::string&, luciole::ArchiveFormat, luciole::ArchiveCompressionLevel,
+          const std::string&
+      )>
           submit,
       std::function<void()> cancel
   );
@@ -25,13 +28,19 @@ public:
 private:
   void submit();
   void showPassword(bool visible);
+  void showCompression(bool visible);
   Input *m_name = nullptr, *m_destination = nullptr;
+  Flex* m_compressionSection = nullptr;
   Flex* m_passwordSection = nullptr;
   Input *m_password = nullptr, *m_confirmation = nullptr;
   ScrollView* m_scroll = nullptr;
   Label* m_error = nullptr;
   std::size_t m_format = 0;
-  std::function<std::string(const std::string&, const std::string&, luciole::ArchiveFormat, const std::string&)>
+  luciole::ArchiveCompressionLevel m_level = luciole::ArchiveCompressionLevel::Balanced;
+  std::function<std::string(
+      const std::string&, const std::string&, luciole::ArchiveFormat, luciole::ArchiveCompressionLevel,
+      const std::string&
+  )>
       m_submit;
 };
 class ArchivePasswordDialog final : public Flex {

@@ -280,6 +280,58 @@ namespace {
     wait(limited, pump);
     TEST_CHECK(limited.error() && !fs::exists(output) && fs::is_empty(fixture.root / "tmp"));
   }
+  void testCompressionPresets(const Fixture& fixture, Pump& pump) {
+    TEST_CHECK(!luciole::archiveCompressionLevelAvailable(luciole::ArchiveFormat::Tar));
+    TEST_CHECK(luciole::archiveCompressionLevelAvailable(luciole::ArchiveFormat::Zip));
+    TEST_CHECK(luciole::archiveCompressionLevelAvailable(luciole::ArchiveFormat::TarGzip));
+    TEST_CHECK(luciole::archiveCompressionLevelAvailable(luciole::ArchiveFormat::TarBzip2));
+    TEST_CHECK(luciole::archiveCompressionLevelAvailable(luciole::ArchiveFormat::TarZstd));
+    TEST_CHECK(luciole::archiveCompressionLevelAvailable(luciole::ArchiveFormat::TarXz));
+    TEST_CHECK(luciole::archiveCompressionLevelAvailable(luciole::ArchiveFormat::SevenZip));
+
+    const auto srcDir = fixture.root / "compression_src";
+    fs::create_directories(srcDir);
+    std::string repeated;
+    repeated.reserve(40000);
+    for (int i = 0; i < 1000; ++i) {
+      repeated += "Luciole compression preset test data line " + std::to_string(i) + "\n";
+    }
+    write(srcDir / "payload.txt", repeated);
+
+    for (const auto& format : luciole::archiveFormats()) {
+      if (!luciole::archiveCompressionLevelAvailable(format.format)) {
+        continue;
+      }
+      std::uintmax_t fastSize = 0, maxSize = 0;
+      for (const auto level :
+           {luciole::ArchiveCompressionLevel::Fast, luciole::ArchiveCompressionLevel::Balanced,
+            luciole::ArchiveCompressionLevel::Maximum}) {
+        const auto archive =
+            fixture.root / ("preset-" + std::to_string(static_cast<int>(level)) + std::string(format.suffix));
+        luciole::ArchiveService service;
+        TEST_CHECK(service.compress({location(srcDir)}, location(archive), format.format, level));
+        wait(service, pump);
+        TEST_CHECK(!service.error() && fs::exists(archive));
+
+        const auto size = fs::file_size(archive);
+        if (level == luciole::ArchiveCompressionLevel::Fast) {
+          fastSize = size;
+        } else if (level == luciole::ArchiveCompressionLevel::Maximum) {
+          maxSize = size;
+        }
+
+        const auto dest = fixture.root
+            / ("extract-preset-"
+               + std::to_string(static_cast<int>(level))
+               + "-"
+               + std::to_string(static_cast<int>(format.format)));
+        TEST_CHECK(service.extract(location(archive), location(dest)));
+        wait(service, pump);
+        TEST_CHECK(!service.error() && read(dest / "compression_src/payload.txt") == repeated);
+      }
+      TEST_CHECK(maxSize <= fastSize);
+    }
+  }
   void testConflicts(const Fixture& fixture, Pump& pump) {
     const auto source = fixture.root / "conflict.txt", archive = fixture.root / "conflict.zip";
     write(source, "first");
@@ -473,7 +525,7 @@ namespace {
     luciole::archive_work::Progress createdProgress;
     auto created = luciole::archive_work::compress(
         {location(root / "many"), location(root / "d")}, location(fixture.root / "large-created.zip"),
-        luciole::ArchiveFormat::Zip, {}, cancel, createdProgress
+        luciole::ArchiveFormat::Zip, luciole::ArchiveCompressionLevel::Balanced, {}, cancel, createdProgress
     );
     const auto recreated = luciole::archive_work::inspect(*created.output, {}, cancel, createdProgress);
     TEST_CHECK(recreated.catalog->entries.size() > 50000);
@@ -2219,9 +2271,10 @@ esac
       bool failed = false;
       try {
         auto prepared = luciole::archive_work::compress(
-            {location(source)}, location(fixture.root / "failed-output"), format.format, {}, cancel, progress, passwords
+            {location(source)}, location(fixture.root / "failed-output"), format.format,
+            luciole::ArchiveCompressionLevel::Balanced, {}, cancel, progress, passwords
         );
-        (void)luciole::archive_work::cleanup({prepared.stage});
+        (void)luciole::archive_work::cleanup(std::vector<std::string>{prepared.stage});
       } catch (const std::exception&) {
         failed = true;
       }
@@ -2299,6 +2352,7 @@ int main(int argc, char** argv) {
     testNativeJobCapacity(fixture);
     testLargeSparseMember(fixture);
     testLargeCatalogue(fixture);
+    testCompressionPresets(fixture, pump);
     testConflicts(fixture, pump);
     testHostile(fixture, pump);
     testLimitsAndTruncation(fixture, pump);

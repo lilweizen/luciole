@@ -16,6 +16,7 @@ struct luciole::ArchiveService::State : std::enable_shared_from_this<State> {
     std::vector<Location> sources;
     std::optional<Location> destination;
     ArchiveFormat format;
+    ArchiveCompressionLevel level = ArchiveCompressionLevel::Balanced;
     std::vector<std::string> selected;
     std::shared_ptr<const ArchiveCatalog> expected;
     std::shared_ptr<archive_work::Passwords> passwords;
@@ -167,7 +168,8 @@ struct luciole::ArchiveService::State : std::enable_shared_from_this<State> {
   }
   bool start(
       Operation operation, std::vector<Location> sources, const std::optional<Location>& destination,
-      ArchiveFormat format, std::vector<std::string> selected, std::shared_ptr<const ArchiveCatalog> known = nullptr,
+      ArchiveFormat format, ArchiveCompressionLevel level, std::vector<std::string> selected,
+      std::shared_ptr<const ArchiveCatalog> known = nullptr,
       std::shared_ptr<archive_work::Passwords> passwords = nullptr
   ) {
     if (phase != ArchivePhase::Idle || closing || sources.empty()) {
@@ -198,6 +200,7 @@ struct luciole::ArchiveService::State : std::enable_shared_from_this<State> {
         std::move(sources),
         destination,
         format,
+        level,
         std::move(selected),
         std::move(expected),
         passwords ? std::move(passwords) : std::make_shared<archive_work::Passwords>()
@@ -232,7 +235,7 @@ struct luciole::ArchiveService::State : std::enable_shared_from_this<State> {
           }
           if (task.operation == Operation::Compress) {
             return archive_work::compress(
-                task.sources, *task.destination, task.format, limits, token, *progress, *task.passwords
+                task.sources, *task.destination, task.format, task.level, limits, token, *progress, *task.passwords
             );
           }
           return archive_work::extract(
@@ -290,10 +293,14 @@ luciole::ArchiveService::~ArchiveService() {
   shutdown();
 }
 bool luciole::ArchiveService::inspect(Location source) {
-  return m_state->start(State::Operation::Inspect, {std::move(source)}, std::nullopt, ArchiveFormat::Zip, {});
+  return m_state->start(
+      State::Operation::Inspect, {std::move(source)}, std::nullopt, ArchiveFormat::Zip,
+      ArchiveCompressionLevel::Balanced, {}
+  );
 }
 bool luciole::ArchiveService::compress(
-    std::vector<Location> sources, Location destination, ArchiveFormat format, std::string password
+    std::vector<Location> sources, Location destination, ArchiveFormat format, ArchiveCompressionLevel level,
+    std::string password
 ) {
   auto passwords = std::make_shared<archive_work::Passwords>();
   if (!password.empty()) {
@@ -305,7 +312,15 @@ bool luciole::ArchiveService::compress(
     }
   }
   return m_state->start(
-      State::Operation::Compress, std::move(sources), std::move(destination), format, {}, nullptr, std::move(passwords)
+      State::Operation::Compress, std::move(sources), std::move(destination), format, level, {}, nullptr,
+      std::move(passwords)
+  );
+}
+bool luciole::ArchiveService::compress(
+    std::vector<Location> sources, Location destination, ArchiveFormat format, std::string password
+) {
+  return compress(
+      std::move(sources), std::move(destination), format, ArchiveCompressionLevel::Balanced, std::move(password)
   );
 }
 bool luciole::ArchiveService::extract(
@@ -313,8 +328,8 @@ bool luciole::ArchiveService::extract(
     std::shared_ptr<const ArchiveCatalog> expected
 ) {
   return m_state->start(
-      State::Operation::Extract, {std::move(source)}, std::move(destination), ArchiveFormat::Zip, std::move(selected),
-      std::move(expected)
+      State::Operation::Extract, {std::move(source)}, std::move(destination), ArchiveFormat::Zip,
+      ArchiveCompressionLevel::Balanced, std::move(selected), std::move(expected)
   );
 }
 bool luciole::ArchiveService::openMember(const std::string& path) {
@@ -322,7 +337,8 @@ bool luciole::ArchiveService::openMember(const std::string& path) {
     return false;
   }
   return m_state->start(
-      State::Operation::Open, {m_state->catalog->source}, m_state->catalog->source, ArchiveFormat::Zip, {path}
+      State::Operation::Open, {m_state->catalog->source}, m_state->catalog->source, ArchiveFormat::Zip,
+      ArchiveCompressionLevel::Balanced, {path}
   );
 }
 void luciole::ArchiveService::cancel() {

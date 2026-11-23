@@ -39,8 +39,9 @@ namespace luciole::archive_work {
       const Passwords& passwords = {}
   );
   Prepared compress(
-      const std::vector<Location>& sources, const Location& destination, ArchiveFormat format, ArchiveLimits limits,
-      const CancelToken& cancel, Progress& progress, const Passwords& passwords = {}
+      const std::vector<Location>& sources, const Location& destination, ArchiveFormat format,
+      ArchiveCompressionLevel level, ArchiveLimits limits, const CancelToken& cancel, Progress& progress,
+      const Passwords& passwords = {}
   );
   Prepared extract(
       const Location& source, const Location& destination, const std::vector<std::string>& selected,

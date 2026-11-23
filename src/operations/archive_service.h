@@ -57,6 +57,7 @@ namespace luciole {
   };
   std::span<const ArchiveFormatInfo> archiveFormats();
   bool archiveEncryptionAvailable();
+  bool archiveCompressionLevelAvailable(ArchiveFormat format);
   std::optional<std::string>
   archivePasswordProblem(std::string_view password, ArchiveFormat format = ArchiveFormat::Zip);
   struct ArchivePasswordRequest {
@@ -74,8 +75,11 @@ namespace luciole {
     ArchiveService(const ArchiveService&) = delete;
     ArchiveService& operator=(const ArchiveService&) = delete;
     bool inspect(Location source);
-    bool
-    compress(std::vector<Location> sources, Location destinationFile, ArchiveFormat format, std::string password = {});
+    bool compress(
+        std::vector<Location> sources, Location destinationFile, ArchiveFormat format,
+        ArchiveCompressionLevel level = ArchiveCompressionLevel::Balanced, std::string password = {}
+    );
+    bool compress(std::vector<Location> sources, Location destinationFile, ArchiveFormat format, std::string password);
     // `expected` is a catalog of `source` read earlier, by this or another instance; extraction fails when the
     // archive no longer matches it. Without one, the catalog this instance read is used.
     bool extract(

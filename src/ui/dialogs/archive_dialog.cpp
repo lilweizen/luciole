@@ -11,7 +11,10 @@
 
 ArchiveDialog::ArchiveDialog(
     bool compress, std::string name, std::string destination,
-    std::function<std::string(const std::string&, const std::string&, luciole::ArchiveFormat, const std::string&)>
+    std::function<std::string(
+        const std::string&, const std::string&, luciole::ArchiveFormat, luciole::ArchiveCompressionLevel,
+        const std::string&
+    )>
         submit,
     std::function<void()> cancel
 )
@@ -49,6 +52,7 @@ ArchiveDialog::ArchiveDialog(
                m_format = index;
                value += formats[index].suffix;
                m_name->setValue(value);
+               showCompression(luciole::archiveCompressionLevelAvailable(formats[index].format));
                if (m_passwordSection) {
                  m_password->setValue("");
                  m_confirmation->setValue("");
@@ -57,6 +61,26 @@ ArchiveDialog::ArchiveDialog(
              }}
         )
     );
+    auto compressionSection =
+        ui::column({.out = &m_compressionSection, .align = FlexAlign::Stretch, .gap = Style::spaceSm});
+    compressionSection->addChild(ui::label({.text = "Compression"}));
+    std::vector<ui::SegmentedOption> levelOptions{
+        {.label = "Fast", .glyph = {}, .tooltip = {}},
+        {.label = "Balanced", .glyph = {}, .tooltip = {}},
+        {.label = "Maximum", .glyph = {}, .tooltip = {}}
+    };
+    compressionSection->addChild(
+        ui::segmented(
+            {.options = std::move(levelOptions),
+             .selectedIndex = static_cast<std::size_t>(luciole::ArchiveCompressionLevel::Balanced),
+             .compact = true,
+             .equalSegmentWidths = true,
+             .onChange = [this](std::size_t index) { m_level = static_cast<luciole::ArchiveCompressionLevel>(index); }}
+        )
+    );
+    body->addChild(std::move(compressionSection));
+    const auto formats = luciole::archiveFormats();
+    showCompression(m_format < formats.size() && luciole::archiveCompressionLevelAvailable(formats[m_format].format));
   }
   body->addChild(ui::label({.text = compress ? "Destination Folder" : "New Output Folder"}));
   body->addChild(
@@ -124,7 +148,7 @@ void ArchiveDialog::submit() {
   const auto error = m_submit(
       m_name ? m_name->value() : "", m_destination->value(),
       luciole::archiveFormats().empty() ? luciole::ArchiveFormat::Zip : luciole::archiveFormats()[m_format].format,
-      m_passwordSection && m_passwordSection->visible() ? m_password->value() : ""
+      m_level, m_passwordSection && m_passwordSection->visible() ? m_password->value() : ""
   );
   m_error->setText(error);
   if (error.empty() && m_passwordSection) {
@@ -137,6 +161,13 @@ void ArchiveDialog::showPassword(bool visible) {
   m_passwordSection->setVisible(visible);
   m_passwordSection->setParticipatesInLayout(visible);
   markLayoutDirty();
+}
+void ArchiveDialog::showCompression(bool visible) {
+  if (m_compressionSection) {
+    m_compressionSection->setVisible(visible);
+    m_compressionSection->setParticipatesInLayout(visible);
+    markLayoutDirty();
+  }
 }
 InputArea* ArchiveDialog::focusArea() const { return (m_name ? m_name : m_destination)->inputArea(); }
 void ArchiveDialog::reveal(const Node* node) { m_scroll->requestScrollIntoView(node); }
