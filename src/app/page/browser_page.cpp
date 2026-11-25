@@ -562,6 +562,7 @@ void BrowserPage::configurationChanged() {
   m_dragDrop.clearExternalDrop();
   m_locationBar.cancelBlankClick();
   if (m_popupSurface && m_dialogTier) {
+    m_dialogResizePending = true;
     m_popupSurface->requestLayout();
   }
   if (m_sidebar.resizing() || m_detailsHeader.gestureActive() || (m_millerView && m_millerView->resizing())) {
@@ -2932,6 +2933,7 @@ void BrowserPage::closePopup() {
   m_dialogTier.reset();
   m_dialogShadow = nullptr;
   m_dialogPosition.reset();
+  m_dialogResizePending = false;
   m_popupDispatcher.setFocusChangeCallback({});
   m_activePopup.release();
   m_menuController.menuClosed();
@@ -3115,13 +3117,12 @@ void BrowserPage::showDialog(std::unique_ptr<Flex> root, DialogWidth width, Popu
        .anchorY = position.second,
        .anchorWidth = 1,
        .anchorHeight = 1,
-       .parentWidth = static_cast<int>(m_surface->width()),
-       .parentHeight = static_cast<int>(m_surface->height()),
        .width = chrome.surfaceWidth,
        .height = chrome.surfaceHeight,
        .anchor = XDG_POSITIONER_ANCHOR_TOP_LEFT,
        .gravity = XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
-       .constraintAdjustment = 0},
+       .constraintAdjustment =
+           XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_X | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_Y},
       dismiss
   );
   if (!m_popupSurface) {
@@ -3144,7 +3145,11 @@ void BrowserPage::showDialog(std::unique_ptr<Flex> root, DialogWidth width, Popu
 void BrowserPage::layoutDialogFrame() {
   const auto chrome = dialogGeometry(*m_activePopup.root());
   if (chrome.surfaceWidth != m_popupSurface->width() || chrome.surfaceHeight != m_popupSurface->height()) {
+    // PopupSurface::resize invokes Surface::onConfigure synchronously, which would consume m_dialogResizePending
+    // before the compositor's real configure arrives.
+    const bool resizePending = std::exchange(m_dialogResizePending, false);
     (void)m_popupSurface->resize(chrome.surfaceWidth, chrome.surfaceHeight, false);
+    m_dialogResizePending = resizePending;
     popup_chrome::setContentInputRegion(*m_popupSurface, chrome);
   }
   if (m_dialogShadow != nullptr) {
@@ -3158,11 +3163,10 @@ void BrowserPage::layoutDialogFrame() {
          .anchorY = position.second,
          .anchorWidth = 1,
          .anchorHeight = 1,
-         .parentWidth = static_cast<int>(m_surface->width()),
-         .parentHeight = static_cast<int>(m_surface->height()),
          .anchor = XDG_POSITIONER_ANCHOR_TOP_LEFT,
          .gravity = XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
-         .constraintAdjustment = 0},
+         .constraintAdjustment =
+             XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_X | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_Y},
         false
     );
   }
@@ -3211,7 +3215,17 @@ void BrowserPage::openPopup(
     m_batchRename.syncTooltip(m_popupSurface->renderTarget().renderer());
     m_renameController.syncPlaceIconTooltip(m_popupSurface->renderTarget().renderer());
   });
-  m_popupSurface->setConfigureCallback([this](std::uint32_t, std::uint32_t) { m_popupSurface->requestLayout(); });
+  m_popupSurface->setConfigureCallback([this](std::uint32_t, std::uint32_t) {
+    if (std::exchange(m_dialogResizePending, false)
+        && m_dialogPosition
+        && (m_popupSurface->configuredX() != m_dialogPosition->first
+            || m_popupSurface->configuredY() != m_dialogPosition->second)) {
+      // A parent resize can constrain the first position against its old geometry.
+      // Retry the requested anchor once after receiving that configure.
+      m_dialogPosition.reset();
+    }
+    m_popupSurface->requestLayout();
+  });
   config.serial = m_popupSerial != 0 ? m_popupSerial : m_connection.lastInputSerial();
   config.grab = dismiss == PopupDismiss::OutsideClick;
   if (!m_popupSurface->initializeAsChild(

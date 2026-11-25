@@ -395,6 +395,7 @@ private:
   std::optional<DialogWidth> m_dialogTier;
   RectNode* m_dialogShadow = nullptr;
   std::optional<std::pair<int, int>> m_dialogPosition;
+  bool m_dialogResizePending = false;
   luciole::PinService& m_pins;
   luciole::FolderViewService* m_folderViews; // nullptr in file pickers, which keep their own sort and view mode.
   luciole::DriveMonitor& m_drives;
