@@ -200,6 +200,51 @@ void RenameController::openPlaceRename(const luciole::Bookmark& bookmark) {
   }
 }
 
+void RenameController::openSeparatorHeading(std::size_t before) {
+  if (!m_pins.editable()
+      || before >= m_pins.bookmarks().size()
+      || !std::ranges::contains(m_pins.separators(), before)) {
+    m_page.actionError("This separator is no longer available.");
+    return;
+  }
+  const auto current = m_pins.separatorHeading(before);
+  // The separator is known by the place it sits above, as Rename Place knows its place: rows renumber when
+  // Places changes while the dialog is open, in another window or another application.
+  const auto anchor = m_pins.bookmarks()[before].location;
+  auto editor = std::make_unique<NameDialog>(
+      m_page.dialogWidth(DialogWidth::Small), current.empty() ? "Add Heading" : "Rename Heading", "heading", current,
+      "Shown under the separator line. Only Luciole shows it.",
+      [](const std::string& label) { return luciole::separatorHeadingProblem(label); },
+      [this, anchor](std::string label) {
+        const auto& pins = m_pins.bookmarks();
+        const auto found = std::ranges::find(pins, anchor, &luciole::Bookmark::location);
+        const auto row = static_cast<std::size_t>(found - pins.begin());
+        if (found == pins.end()
+            || !std::ranges::contains(m_pins.separators(), row)
+            || !m_pins.setSeparatorHeading(row, std::move(label))) {
+          if (m_headingEditor != nullptr) {
+            m_headingEditor->showError(
+                m_pins.busy() ? "Places are being saved. Try again shortly."
+                              : "This separator changed. Close this dialog and try again."
+            );
+          }
+          return;
+        }
+        m_page.dismissPopup();
+      },
+      [this] { m_page.dismissPopup(); }, current.empty() ? "Add" : "Rename", "Saving…"
+  );
+  auto* control = editor.get();
+  m_page.showDialog(std::move(editor), DialogWidth::Small);
+  if (m_page.popupSurface() != nullptr) {
+    m_page.activePopup().bind(ActivePopup::Kind::SeparatorHeading, [this] { m_headingEditor = nullptr; });
+    m_headingEditor = control;
+    control->input()->setPlaceholder("Heading");
+    m_page.popupDispatcher().setFocus(control->input()->inputArea());
+    control->input()->selectAll();
+  }
+}
+
 void RenameController::openPlaceIconPicker(const luciole::Bookmark& bookmark) {
   if (bookmark.location.isTrash() || !m_pins.editable()) {
     return;

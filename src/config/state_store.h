@@ -9,6 +9,9 @@
 
 namespace luciole {
   std::optional<std::string> bookmarkLabelProblem(std::string_view label);
+  // The same rules for a Places separator heading, worded for headings, and it must show something: text made only
+  // of spaces, Unicode ones included, is refused rather than drawn as an empty heading.
+  std::optional<std::string> separatorHeadingProblem(std::string_view heading);
   std::optional<std::string> storedUriProblem(const std::string& uri);
 
   struct Bookmark {
@@ -35,6 +38,10 @@ namespace luciole {
 
   struct SessionState {
     std::vector<Bookmark> bookmarks;
+    // Separator lines between Places rows, each as the row it sits before, in increasing order.
+    std::vector<std::size_t> placeSeparators;
+    // A heading for each separator, in the same order; empty for a plain line.
+    std::vector<std::string> placeSeparatorHeadings;
     std::vector<SavedWindow> windows;
     bool placesCustomized = false;
     // Folder of the last accepted file picker answer.
@@ -52,7 +59,10 @@ namespace luciole {
     explicit StateStore(std::filesystem::path path);
     static std::filesystem::path pathFromEnvironment();
     bool load(); // Failure preserves the last valid snapshot and the file.
-    AtomicWriteState saveBookmarks(std::vector<Bookmark> bookmarks);
+    AtomicWriteState saveBookmarks(
+        std::vector<Bookmark> bookmarks, std::vector<std::size_t> separators = {},
+        std::vector<std::string> headings = {}
+    );
     AtomicWriteState saveWindows(std::vector<SavedWindow> windows);
     AtomicWriteState saveChooserFolder(Location folder);
     const SessionState& state() const { return m_state; }

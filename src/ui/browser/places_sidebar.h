@@ -5,6 +5,7 @@
 #include "ui/controls/button.h"
 #include "ui/controls/scroll_view.h"
 
+class Box;
 class ProgressBar;
 
 namespace luciole {
@@ -29,12 +30,20 @@ namespace luciole {
     void sync(std::optional<Location> current);
     void setTrashFull(bool full);
     void cancelDragCandidate();
-    std::optional<std::size_t> dropSlot(float x, float y) const;
-    LayoutRect dropLine(std::size_t slot) const;
+    std::optional<PinSlot> dropSlot(float x, float y) const;
+    LayoutRect dropLine(PinSlot slot) const;
     void dragScroll(float delta);
     float dragScrollSpeed(float x, float y) const;
     void setOpenCallback(std::function<void(const Location&)> callback);
     void setContextCallback(std::function<void(const Bookmark&, float, float)> callback);
+    // Right-click on a separator line: the Places row it sits before, and the pointer's scene position.
+    void setSeparatorContextCallback(std::function<void(std::size_t, float, float)> callback) {
+      m_separatorContext = std::move(callback);
+    }
+    // A separator dragged from in front of row `from` and dropped in front of row `to`.
+    void setSeparatorMoveCallback(std::function<void(std::size_t from, std::size_t to)> callback) {
+      m_separatorMove = std::move(callback);
+    }
     void setDragCallback(std::function<void(const Bookmark&)> callback);
     void setRenameCallback(std::function<void(const Bookmark&)> callback);
     // Drive rows: open mounts the drive first when needed; remove unmounts or ejects it.
@@ -56,6 +65,15 @@ namespace luciole {
       Bookmark bookmark;
       std::optional<std::size_t> pinIndex;
       Button* button = nullptr;
+      // The separator line drawn above the row, as the row it is saved in front of, its button and the line itself,
+      // which can have a heading under it.
+      std::optional<std::size_t> separator;
+      Button* separatorButton = nullptr;
+      Node* separatorLine = nullptr;
+    };
+    struct SeparatorRow {
+      Button* button = nullptr;
+      Node* line = nullptr;
     };
     struct DriveRow {
       std::string key;
@@ -68,6 +86,10 @@ namespace luciole {
       bool selected = false;
     };
     void rebuild();
+    SeparatorRow addSeparatorRow(std::size_t before);
+    // The row a dragged separator at scene `y` would sit in front of, if it can go there.
+    std::optional<std::size_t> separatorTarget(float y) const;
+    void showSeparatorIndicator(std::optional<std::size_t> target);
     void addRow(const Bookmark& bookmark, const std::string& glyph, std::optional<std::size_t> index);
     void addDriveRow(const Drive& drive);
     std::optional<Bookmark> folderAt(float x, float y, float verticalInset) const;
@@ -93,6 +115,18 @@ namespace luciole {
     bool m_dragged = false;
     std::function<void(const Location&)> m_open;
     std::function<void(const Bookmark&, float, float)> m_context;
+    std::function<void(std::size_t, float, float)> m_separatorContext;
+    std::function<void(std::size_t, std::size_t)> m_separatorMove;
+    // A separator being dragged within Places: the row it sits in front of, where the press started and the row
+    // it would now move in front of.
+    struct SeparatorDrag {
+      std::size_t from = 0;
+      float pressY = 0;
+      bool moved = false;
+      std::optional<std::size_t> target;
+    };
+    std::optional<SeparatorDrag> m_separatorDrag;
+    Box* m_separatorIndicator = nullptr;
     std::function<void(const Bookmark&)> m_drag;
     std::function<void(const Bookmark&)> m_rename;
     std::function<void(const std::string&)> m_driveOpen;

@@ -34,9 +34,11 @@ namespace luciole {
     bool alwaysShowTabBar = true;
     bool alwaysShowStatusBar = false;
     bool compactMenus = true;
+    bool contextMenuIcons = true;
     bool showCloseButtons = true;
     bool reduceAnimations = false;
     bool useSSD = true;
+    ColorScheme colorScheme = ColorScheme::Auto;
     double backgroundOpacity = 1.0; // 0 (clear) to 1 (opaque) for the window background.
     double cornerRadiusScale = 1.0; // 0 (square) to 2; 1 is the default rounding.
     BrowsePresentation presentation;
@@ -98,9 +100,11 @@ namespace luciole {
     AlwaysShowTabBar,
     AlwaysShowStatusBar,
     CompactMenus,
+    ContextMenuIcons,
     ShowCloseButtons,
     ReduceAnimations,
     UseSSD,
+    ColorScheme,
     BackgroundOpacity,
     CornerRadiusScale,
     SortBy,
@@ -199,9 +203,11 @@ namespace luciole {
     static constexpr PreferenceKey<bool> AlwaysShowTabBar{Id::AlwaysShowTabBar};
     static constexpr PreferenceKey<bool> AlwaysShowStatusBar{Id::AlwaysShowStatusBar};
     static constexpr PreferenceKey<bool> CompactMenus{Id::CompactMenus};
+    static constexpr PreferenceKey<bool> ContextMenuIcons{Id::ContextMenuIcons};
     static constexpr PreferenceKey<bool> ShowCloseButtons{Id::ShowCloseButtons};
     static constexpr PreferenceKey<bool> ReduceAnimations{Id::ReduceAnimations};
     static constexpr PreferenceKey<bool> UseSSD{Id::UseSSD};
+    static constexpr PreferenceKey<luciole::ColorScheme> ColorScheme{Id::ColorScheme};
     static constexpr PreferenceKey<double> BackgroundOpacity{Id::BackgroundOpacity};
     static constexpr PreferenceKey<double> CornerRadiusScale{Id::CornerRadiusScale};
     static constexpr PreferenceKey<luciole::SortField> SortBy{Id::SortBy};
@@ -288,7 +294,8 @@ namespace luciole {
     BrowserPreferenceId m_preference;
     std::variant<
         std::monostate, bool, int, double, SortField, ViewMode, ViewDensity, FilenameTruncation, DetailsColumnOrder,
-        ActivationMode, TypingMode, DropAction, ThumbnailPolicy, ChooserStartFolder, std::string, KeybindConfig>
+        ActivationMode, TypingMode, DropAction, ThumbnailPolicy, ChooserStartFolder, ColorScheme, std::string,
+        KeybindConfig>
         m_value;
   };
 

@@ -510,7 +510,12 @@ void BrowserPage::focusChanged(InputArea* focused) {
 bool BrowserPage::completeLocationOnTab(std::uint32_t modifiers) { return m_locationBar.completeOnTab(modifiers); }
 bool BrowserPage::sidebarKey(const KeyboardEvent& event) { return m_sidebar.key(event); }
 bool BrowserPage::sidebarOverlays(float x, float y) const { return !overlay() && m_sidebar.drawerContains(x, y); }
-void BrowserPage::prepareSidebar(float width) { m_sidebar.prepareWidth(width); }
+void BrowserPage::prepareSidebar(float width) {
+  m_sidebar.prepareWidth(width);
+  // The window arranges the sidebar before this page's layoutFrame(): rebuild a changed Places list now, so the
+  // new rows are arranged and drawn in this frame instead of waiting for the next one.
+  m_sidebar.invalidate();
+}
 void BrowserPage::arrangeSidebar(Renderer& renderer, float top, float height) {
   m_sidebar.arrange(renderer, top, height);
 }
@@ -1280,7 +1285,11 @@ bool BrowserPage::shortcutKey(const KeyboardEvent& event) {
   if (!editing && (m_detailsHeader.menuKey(event) || m_fileKeys.commandKey(event))) {
     return true;
   }
-  if (!editing && dispatchShortcut(event, {Action::Grid, Action::List, Action::Miller, Action::ShowHidden})) {
+  // View chords cannot be plain text keys, so they switch the view even while typing in a field.
+  if (dispatchShortcut(event, {Action::Grid, Action::List, Action::Miller})) {
+    return true;
+  }
+  if (!editing && dispatchShortcut(event, {Action::ShowHidden})) {
     return true;
   }
   if (m_list != nullptr
@@ -1319,7 +1328,11 @@ bool BrowserPage::windowKey(const KeyboardEvent& event) {
     return true;
   }
   if (luciole::shortcutMatches(Action::Search, event.sym, event.modifiers) && m_locationBar.hasFilterInput()) {
-    dispatchAction(Action::Search);
+    if (dispatcher().focusedArea() != m_locationBar.filterInput().inputArea()) {
+      dispatchAction(Action::Search);
+    } else if (!event.repeat) {
+      m_locationBar.toggleSearchScope();
+    }
     return true;
   }
   return false;
@@ -1907,6 +1920,13 @@ void BrowserPage::showLinkTarget(const luciole::Location& link) {
   );
 }
 
+void BrowserPage::setSearchRecursive(bool recursive) {
+  m_browser.setSearchRecursive(recursive);
+  for (const auto& column : m_miller.columns()) {
+    column->browser->setSearchRecursive(recursive);
+  }
+}
+
 void BrowserPage::applySettings(const luciole::BrowserSettings& settings, bool force) {
   m_terminal.setCommand(settings.terminalCommand);
   m_launcher.setTerminalCommand(settings.terminalCommand);
@@ -1969,10 +1989,7 @@ void BrowserPage::applySettings(const luciole::BrowserSettings& settings, bool f
     m_fileKeys.clearTypeahead();
     m_activationMode = settings.activationMode;
     m_fileKeys.setTypingMode(settings.typingMode);
-    m_browser.setSearchRecursive(settings.typingMode != luciole::TypingMode::Filter);
-    for (const auto& column : m_miller.columns()) {
-      column->browser->setSearchRecursive(settings.typingMode != luciole::TypingMode::Filter);
-    }
+    setSearchRecursive(settings.typingMode != luciole::TypingMode::Filter);
     for (auto* adapter : {&m_listAdapter, &m_gridAdapter}) {
       adapter->setActivationMode(m_activationMode);
     }
@@ -2066,7 +2083,8 @@ void BrowserPage::setViewMode(luciole::ViewMode mode) {
   if (mode == m_viewMode) {
     return;
   }
-  if (m_list != nullptr) {
+  // Taking focus from a text field would end its edit and drop the path being typed.
+  if (m_list != nullptr && !m_locationBar.textFocused()) {
     dispatcher().setFocus(m_list->focusArea());
   }
   if (m_folderView.saveViewMode(mode)) {
@@ -2514,7 +2532,8 @@ void BrowserPage::prepareFrame(bool, bool layout) {
 void BrowserPage::layoutFrame(Renderer& renderer) {
   UiPhaseScope phase(UiPhase::Layout);
   m_statusBar.layout(m_pageBounds.width);
-  auto placesFocus = m_sidebar.invalidate();
+  // Places changed while this frame was prepared, after the window arranged the sidebar: draw them in another frame.
+  const bool placesLate = m_sidebar.invalidate();
   m_dragDrop.applyScroll();
   m_sidebar.layout();
   m_locationBar.prepareLayout();
@@ -2583,8 +2602,11 @@ void BrowserPage::layoutFrame(Renderer& renderer) {
   m_dragDrop.layout(renderer);
   m_locationBar.layoutCompletions(renderer);
   m_thumbnails.endFrame();
-  m_sidebar.restoreFocus(std::move(placesFocus), m_popupSurface != nullptr || m_archiveController.open() || !m_active);
+  m_sidebar.restoreFocus(m_popupSurface != nullptr || m_archiveController.open() || !m_active);
   m_fileKeys.notifyStateChanged();
+  if (placesLate) {
+    m_surface->requestUpdate();
+  }
 }
 
 void BrowserPage::buildScene() {
@@ -2917,7 +2939,6 @@ void BrowserPage::closePopup() {
     m_popupSurface->setSceneRoot(nullptr);
   }
   m_dialogTier.reset();
-  m_dialogTop.reset();
   m_dialogShadow = nullptr;
   m_dialogPosition.reset();
   m_dialogResizePending = false;
@@ -3070,19 +3091,12 @@ popup_chrome::Geometry BrowserPage::dialogGeometry(Flex& content) {
 }
 
 std::pair<int, int> BrowserPage::dialogPosition(const popup_chrome::Geometry& chrome) {
-  // Centered when it opens and when the window height changes; otherwise the top edge stays put so switching
-  // tabs or pages only moves the bottom edge. A taller page slides it up just enough to stay inside the margin.
+  const auto windowWidth = static_cast<float>(m_surface->width());
   const auto windowHeight = static_cast<float>(m_surface->height());
-  if (windowHeight != m_dialogWindowHeight) {
-    m_dialogWindowHeight = windowHeight;
-    m_dialogTop.reset();
-  }
-  const float lowest = std::max(kDialogMargin, windowHeight - kDialogMargin - chrome.contentHeight);
-  const float top = std::clamp(m_dialogTop.value_or((windowHeight - chrome.contentHeight) / 2), kDialogMargin, lowest);
-  m_dialogTop = top;
+  const float top = std::max(kDialogMargin, (windowHeight - chrome.contentHeight) * 0.5F);
   return {
-      static_cast<int>((static_cast<float>(m_surface->width()) - chrome.contentWidth) / 2) - chrome.bleed.left,
-      static_cast<int>(top) - chrome.bleed.up
+      static_cast<int>(std::round((windowWidth - chrome.contentWidth) * 0.5F)) - chrome.bleed.left,
+      static_cast<int>(std::round(top)) - chrome.bleed.up
   };
 }
 
@@ -3113,7 +3127,7 @@ void BrowserPage::showDialog(std::unique_ptr<Flex> root, DialogWidth width, Popu
        .anchorHeight = 1,
        .width = chrome.surfaceWidth,
        .height = chrome.surfaceHeight,
-       .anchor = XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT,
+       .anchor = XDG_POSITIONER_ANCHOR_TOP_LEFT,
        .gravity = XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
        .constraintAdjustment =
            XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_X | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_Y},
@@ -3139,9 +3153,12 @@ void BrowserPage::showDialog(std::unique_ptr<Flex> root, DialogWidth width, Popu
 void BrowserPage::layoutDialogFrame() {
   const auto chrome = dialogGeometry(*m_activePopup.root());
   if (chrome.surfaceWidth != m_popupSurface->width() || chrome.surfaceHeight != m_popupSurface->height()) {
+    // PopupSurface::resize invokes Surface::onConfigure synchronously, which would consume m_dialogResizePending
+    // before the compositor's real configure arrives.
+    const bool resizePending = std::exchange(m_dialogResizePending, false);
     (void)m_popupSurface->resize(chrome.surfaceWidth, chrome.surfaceHeight, false);
+    m_dialogResizePending = resizePending;
     popup_chrome::setContentInputRegion(*m_popupSurface, chrome);
-    m_dialogResizePending = true;
   }
   if (m_dialogShadow != nullptr) {
     m_dialogShadow->setFrameSize(chrome.contentWidth, chrome.contentHeight);
@@ -3154,7 +3171,7 @@ void BrowserPage::layoutDialogFrame() {
          .anchorY = position.second,
          .anchorWidth = 1,
          .anchorHeight = 1,
-         .anchor = XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT,
+         .anchor = XDG_POSITIONER_ANCHOR_TOP_LEFT,
          .gravity = XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
          .constraintAdjustment =
              XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_X | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_Y},

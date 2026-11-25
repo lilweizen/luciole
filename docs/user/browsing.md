@@ -8,7 +8,7 @@ The mouse's Back and Forward side buttons navigate folder history, like the tool
 
 By default, typing while browsing starts a recursive filename search rooted in the current folder. Settings → General → When Typing also offers Filter Current Folder and Select Names. Filtering immediately narrows the live folder listing by a literal, case-insensitive name substring, without looking inside subfolders. For example, `temp` matches `Template1.csv`, `Template2.csv` and `Templates` in the current folder, but not files inside `Templates`. Hidden-file and backup-file visibility still apply.
 
-The field next to the location bar shows Search files… for recursive search, or Filter files… in current-folder mode. Clicking it or pressing Ctrl+F uses the same scope. Clear the query or press Escape to return to the folder listing. Select Names changes typing to name selection while keeping explicit searches recursive. Content search and an indexing service are not part of the current search.
+The field next to the location bar shows Search files… for recursive search, or Filter files… in current-folder mode. Clicking it or pressing Ctrl+F uses the same scope. The icon at the start of the field switches the scope for the current pane: click it, or press Ctrl+F again while the field has focus. New tabs start from the When Typing setting. Clear the query or press Escape to return to the folder listing. Select Names changes typing to name selection while keeping explicit searches recursive. Content search and an indexing service are not part of the current search.
 
 | Action | Shortcut |
 | --- | --- |
@@ -76,11 +76,17 @@ When the server requests login, use the username, domain and password fields, or
 
 Network protocols require their installed GVfs backends and a session D-Bus connection. See [packaging requirements](../../PACKAGING.md#gvfs-and-trash). A separate connect-to-server form and process-blocked mount questions are still planned.
 
+### Network share automounts
+
+Open an NFS or SMB share from the sidebar or enter its local mount path. Systemd mounts it using your fstab entry or native automount unit, even without `user` in fstab. The share stays in the sidebar while idle. If the automount is stopped or the NAS is unreachable, Luciole shows an error; file operations, program launches, and terminal actions on the share fail the same way instead of using the local folder beneath it. Permanent deletion refuses a folder that contains a share's mount point, and recursive permission changes skip the share.
+
+Use **Refresh** to see folder changes.
+
 ## Views and selection
 
 [Undo/redo](file-operations.md#undo-and-redo) affects the most recent supported creation, rename or native copy/link/move in the running application, independently of the current folder or selection. When a text input is focused, its text-editing undo takes precedence.
 
-Use the toolbar or main menu to choose Grid (Ctrl+1), List (Ctrl+2) or Columns (Ctrl+3). In every view, Ctrl+wheel (or Ctrl with a touchpad scroll), Ctrl+Plus and Ctrl+Minus change the icon size, and Ctrl+0 resets it. Each view keeps its own size. View, zoom, sort and hidden-file choices are saved as defaults for new browsing pages. Existing tabs and panes keep their own browsing state. In Grid and List, entries fade in the first time they scroll into view in a folder; Settings → Appearance → Reduce Animations turns this and other transitions off.
+Use the toolbar or main menu to choose Grid (Ctrl+1), List (Ctrl+2) or Columns (Ctrl+3). These shortcuts also work while typing in the search field or location bar. In every view, Ctrl+wheel (or Ctrl with a touchpad scroll), Ctrl+Plus and Ctrl+Minus change the icon size, and Ctrl+0 resets it. Each view keeps its own size. View, zoom, sort and hidden-file choices are saved as defaults for new browsing pages. Existing tabs and panes keep their own browsing state. In Grid and List, entries fade in the first time they scroll into view in a folder; Settings → Appearance → Reduce Animations turns this and other transitions off.
 
 Folders show custom icons set by other file managers: GNOME Files' (`gio set FOLDER metadata::custom-icon-name NAME`, or `metadata::custom-icon` with an image's `file://` URI) and Dolphin's or PCManFM-Qt's (`Icon=` in the folder's `.directory`, a themed icon name or an absolute image path). Links show their target's icon with a link emblem: a custom icon set on the link or on its target folder, the folder icon, or the target file's type icon. A dangling link keeps the link icon. Changes to custom icons show the next time the folder is listed, for example after Refresh (F5). Network filesystems keep the plain icons, so listing them reads nothing extra.
 
@@ -98,7 +104,7 @@ Folder sizes do not show “Reading…”; they stay blank until their backgroun
 
 The status bar, a small tab docked to the bottom of the file pane, reports actions, search and selection. Action messages clear after five seconds or at the next action. Settings → Appearance → Always Show Status Bar keeps it visible when idle with the item count and, when available, free space.
 
-Click an entry to select it, Ctrl+click to toggle it and Shift+click to select a range. Clicking empty space clears selection. Drag an area over entries to select several. Ctrl+A selects all visible results, Ctrl+Shift+I inverts selection and Ctrl+S selects by pattern. Escape clears the selection when browsing. Opening uses double-click by default; Settings → General offers single-click opening.
+Click an entry to select it, Ctrl+click to toggle it and Shift+click to select a range. Clicking empty space clears selection. Drag an area over entries to select several. An unselected entry is its icon and name: in every view, the rest of its row or tile counts as empty space, so a drag can start beside a short name or over the detail columns. A selected entry can be dragged from anywhere in its highlight. Ctrl+A selects all visible results, Ctrl+Shift+I inverts selection and Ctrl+S selects by pattern. Escape clears the selection when browsing. Opening uses double-click by default; Settings → General offers single-click opening.
 
 Opening a local file uses the default application for its file type; supported local archives open in Luciole's archive browser instead (see [archives](file-operations.md#archives)). Use Open With to choose another application or change that file type's default. Suggested applications include registered file handlers whose desktop entries use `NoDisplay=true`, such as imv and swayimg. For a mixed selection, suggested applications must handle every selected file type. Show Other Applications retains launcher visibility rules for unrelated applications.
 
@@ -118,9 +124,13 @@ Drop native files or folders onto the Trash row to move them to Trash. This work
 
 Pinned folders use the shared GTK bookmark file, also used by Nemo and Nautilus. Adding, removing, renaming or reordering user bookmarks in Luciole updates that file; changes from another application appear automatically. Built-in Places keep their Luciole layout and are not automatically added to other applications' bookmarks. Old Luciole-only pins are not imported.
 
+To split Places into groups, right-click a place and choose **Add Separator Below**; use it as often as you like. Drag a separator to another gap, or right-click it for **Move Up**, **Move Down** and **Remove Separator**. A place's **Move Up** and **Move Down** carry it across a separator. A pin dragged next to a separator lands on the side of the line that the drop line shows, and the separators otherwise stay with the places that don't move, also when pinning or unpinning. Separators are kept in Luciole's private state, not the shared GTK bookmark file, so other applications don't see them. The folder tree sidebar doesn't show them.
+
+A separator can also carry a heading, shown under its line in the same style as Places and Drives: right-click the separator and choose **Add Heading…**. **Rename Heading…** and **Remove Heading** change it later. The heading moves with its separator.
+
 Use a bookmark's context menu and choose **Change Icon…** to select a Tabler icon. This icon is stored in Luciole's private state and does not change the shared GTK bookmark or its appearance in other applications. Choose **Reset to Default** to restore the place's standard icon.
 
-Drives starts with File System (`/`), followed by the volumes and mounts GIO reports: removable media, extra partitions and network mounts, but not other system mounts such as `/home` or `/boot`. Mounted drives come before unmounted ones. In the Places list, each mounted drive shows a bar of its used space under its row; the bar turns red at 90% used. Unmounted drives and filesystems that do not report a size have no bar. Hovering a mounted drive shows its mountpoint and free space. Right-click a mounted drive for Open, its removal action (Unmount, Eject or Safely Remove) when available, and Properties.
+Drives starts with File System (`/`), followed by the volumes and mounts GIO reports: removable media, extra partitions and network mounts, but not other system mounts such as `/home` or `/boot`, nor bind mounts, which show a folder that already exists elsewhere. Mounted drives come before unmounted ones. In the Places list, each mounted drive shows a bar of its used space under its row; the bar turns red at 90% used. Unmounted drives and filesystems that do not report a size have no bar. Hovering a mounted drive shows its mountpoint and free space. Right-click a mounted drive for Open, its removal action (Unmount, Eject or Safely Remove) when available, and Properties.
 
 To open a LUKS-encrypted drive, click its row under Drives. When the provider needs a passphrase, Luciole opens Unlock Drive. Enter the passphrase and choose Unlock; the mounted folder opens after the provider succeeds. If unlocking fails, Luciole shows the provider's error; click the drive again to retry. Cancel, Escape or dismissing the dialog stops the request. Navigating elsewhere or closing the pane also cancels it. Your current folder stays visible until mounting succeeds.
 
@@ -128,7 +138,7 @@ Device unlocking requires the GVfs UDisks volume monitor, the UDisks2 system ser
 
 The eject button and the drive's context menu remove a mounted drive the way GNOME Files does: Safely Remove powers off a USB disk plugged in during the session, Eject ejects removable media, and Unmount unmounts anything else. Open panes leave the drive first. Undo/Redo history that holds that mount is retired, and removal waits briefly for cleanup and cancelled preview/thumbnail reads. History belonging to other mounts stays available. Removal never forces: active operations or other programs with open files still prevent removal, and the status bar names the reported blockers.
 
-Settings → Appearance controls sidebar visibility, width, drive rows and the optional folder tree. The separate expandable-folder preference adds a tree within List view. Both tree options are off by default.
+The sidebar button at the left of the toolbar, or F9, shows and hides the sidebar. Settings → Appearance controls sidebar visibility, width, drive rows and the optional folder tree. The separate expandable-folder preference adds a tree within List view. Both tree options are off by default.
 
 Below 760 logical pixels wide, the sidebar slides out of the way to leave room for browsing. Use the sidebar button at the left of the toolbar or F9 to open it as a drawer over the file area. Selecting a destination, pressing Escape, pressing F9 again or clicking outside closes the drawer. Escape returns keyboard focus to the file view. Tab and Shift+Tab stay within the open drawer. Folder-tree navigation, pin menus and supported folder drops remain available there.
 
@@ -143,6 +153,8 @@ The tab bar is shown by default even with one tab. Settings → Appearance → A
 Middle-click a folder, breadcrumb or Places row, or use a folder's Open In → New Tab menu, to open it in another tab. Settings → General → Switch to New Folder Tabs is on by default. Turn it off to load those folders in background tabs while keeping your current tab, focused pane, search, selection and scroll. Shift+middle-click reverses the preference for that one opening. Click the tab or use Ctrl+Tab to visit it when ready.
 
 Drag a tab along the tab bar to reorder it. A copy of the tab follows the pointer and a marker shows where it will land. When the tabs don't all fit, holding it near either end of the bar scrolls the bar; you can also scroll the bar with the mouse wheel over it or by resting the pointer near either end. Drag it below the toolbar and release to move it into a new window; with Single Window on, or with only one tab, the drop stays in the tab bar. Escape cancels the drag.
+
+The empty part of the tab bar works as the window's title bar: drag it to move the window, double-click it to maximize or restore the window, and right-click it for the compositor's window menu. The window menu depends on the compositor; some offer none.
 
 Ctrl+T, the plus button and explicit New Tab menu actions always switch to the new tab. Duplicating or reopening a tab also selects it, and New Window retains its normal focus behavior. The folder-tab preference does not change those actions.
 
