@@ -148,11 +148,11 @@ Widening the window restores the saved docked-sidebar preference and width. Temp
 
 Each tab can contain one or two browsing panes. A split belongs to its tab; it does not create another tab. Navigation, search, selection and scroll belong to each pane. Actions target the focused pane.
 
-The tab bar is shown by default even with one tab. Settings → Appearance → Always Show Tab Bar can hide it when there is only one tab.
+The tab bar is shown by default even with one tab. Settings → Appearance → Always Show Tab Bar can hide it when there is only one tab. When the tabs don't all fit, scroll the bar with the mouse wheel, or rest the pointer near either end of it.
 
 Middle-click a folder, breadcrumb or Places row, or use a folder's Open In → New Tab menu, to open it in another tab. Settings → General → Switch to New Folder Tabs is on by default. Turn it off to load those folders in background tabs while keeping your current tab, focused pane, search, selection and scroll. Shift+middle-click reverses the preference for that one opening. Click the tab or use Ctrl+Tab to visit it when ready.
 
-Drag a tab along the tab bar to reorder it. A copy of the tab follows the pointer and a marker shows where it will land. When the tabs don't all fit, holding it near either end of the bar scrolls the bar; you can also scroll the bar with the mouse wheel over it or by resting the pointer near either end. Drag it below the toolbar and release to move it into a new window; with Single Window on, or with only one tab, the drop stays in the tab bar. Escape cancels the drag.
+Drag a tab along the tab bar to reorder it. A copy of the tab follows the pointer and a marker shows where it will land. When the tabs don't all fit, holding it near either end of the bar scrolls the bar. Drag it below the toolbar and release to move it into a new window; with Single Window on, or with only one tab, the drop stays in the tab bar. Escape cancels the drag.
 
 The empty part of the tab bar works as the window's title bar: drag it to move the window, double-click it to maximize or restore the window, and right-click it for the compositor's window menu. The window menu depends on the compositor; some offer none.
 

@@ -64,9 +64,11 @@ namespace {
   constexpr float kTabGhostOpacity = 0.92F;
   // Below this a dropped tab opens in a new window rather than moving within the strip.
   constexpr float kTabDetachY = kTabStripHeight + kNavigationToolbarHeight - Style::spaceXs;
-  // Width of the zone at each end of the tab bar that scrolls it while a tab is dragged, and the fastest step.
+  // Width of the zone at each end of the tab bar that scrolls it while a tab is dragged or the pointer rests there,
+  // and the fastest step.
   constexpr float kTabEdgeZone = 48.0F;
   constexpr float kTabEdgeStep = 14.0F;
+  // The pointer rests this long near an end before the bar scrolls, so clicking an outer tab does not move it away.
   constexpr std::chrono::milliseconds kTabHoverDwellDelay{300};
 } // namespace
 

@@ -147,7 +147,7 @@ private:
   bool tabDetaches(const Host& host, float y) const;
   // How far the tab bar scrolls per step while a dragged tab or hovered pointer is held near its ends; 0 elsewhere.
   float tabEdgeScrollSpeed(const Host& host) const;
-  // Starts or stops scrolling the tab bar for the dragged tab's position.
+  // Starts or stops scrolling the tab bar for the dragged tab's or the resting pointer's position.
   void updateTabEdgeScroll(Host& host);
   // Starts the dwell timer for edge-hover scrolling.
   void updateTabHoverScroll(Host& host);
