@@ -1844,7 +1844,6 @@ void WorkspaceApplication::rebuildStrip(Host& host, const luciole::TabWindow& wi
     host.dispatcher.cancelPointerCapture();
   }
   cancelTabHoverScroll(host);
-  host.tabEdgeScroll.stop();
   if (host.strip) {
     auto removed = host.root->removeChild(host.strip);
   }
