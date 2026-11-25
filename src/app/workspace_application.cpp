@@ -67,6 +67,7 @@ namespace {
   // Width of the zone at each end of the tab bar that scrolls it while a tab is dragged, and the fastest step.
   constexpr float kTabEdgeZone = 48.0F;
   constexpr float kTabEdgeStep = 14.0F;
+  constexpr std::chrono::milliseconds kTabHoverDwellDelay{300};
 } // namespace
 
 WorkspaceApplication::WorkspaceApplication(
@@ -740,6 +741,9 @@ void WorkspaceApplication::pointer(const PointerEvent& event) {
   }
   host->pointerX = static_cast<float>(event.sx);
   host->pointerY = static_cast<float>(event.sy);
+  if (event.type == PointerEvent::Type::Leave) {
+    cancelTabHoverScroll(*host);
+  }
   if ((event.type == PointerEvent::Type::Button && event.pressed)
       || (event.type != PointerEvent::Type::Leave && m_connection.lastKeyboardSurface() == event.surface)) {
     m_focused = host->id;
@@ -758,28 +762,33 @@ void WorkspaceApplication::pointer(const PointerEvent& event) {
   for (auto& [tab, page] : m_pages) {
     (void)tab;
     if (page->popup() && page->boundSurface() == &host->surface) {
+      cancelTabHoverScroll(*host);
       page->pointer(event);
       return;
     }
   }
   for (auto tab : host->mounted) {
     if (m_pages.at(tab)->dragging()) {
+      cancelTabHoverScroll(*host);
       m_pages.at(tab)->pointer(event);
       return;
     }
   }
   // A button held in a page stays with that page, wherever the pointer moves.
   if (host->dispatcher.pointerCaptured() && std::ranges::contains(host->mounted, host->pointerPage)) {
+    cancelTabHoverScroll(*host);
     m_pages.at(host->pointerPage)->pointer(event);
     return;
   }
   const auto x = static_cast<float>(event.sx), y = static_cast<float>(event.sy);
   if (active.sidebarOverlays(x, y)) {
+    cancelTabHoverScroll(*host);
     host->pointerPage = window.active;
     active.pointer(event);
     return;
   }
   if (host->previewDragWidth) {
+    cancelTabHoverScroll(*host);
     if (event.type == PointerEvent::Type::Motion) {
       host->previewDragWidth = std::clamp(static_cast<int>(std::lround(host->surface.width() - x)), 208, 800);
       host->surface.requestLayout();
@@ -793,6 +802,7 @@ void WorkspaceApplication::pointer(const PointerEvent& event) {
     return;
   }
   if (host->resizing) {
+    cancelTabHoverScroll(*host);
     if (event.type == PointerEvent::Type::Motion) {
       m_model.resize(host->id, (x - host->browsingBounds.x) / std::max(1.0F, host->browsingBounds.width));
       host->surface.requestLayout();
@@ -838,55 +848,10 @@ void WorkspaceApplication::pointer(const PointerEvent& event) {
       return;
     }
   }
-  if (host->strip && host->strip->visible() && host->strip->containsScenePoint(x, y)) {
-    host->pointerPage = 0;
-    for (const auto& [tab, button] : host->buttons) {
-      if (host->tabScroll->containsScenePoint(x, y)
-          && button->containsScenePoint(x, y)
-          && (event.button == BTN_MIDDLE
-              || !host->closeButtons.at(tab).first->visible()
-              || !host->closeButtons.at(tab).first->containsScenePoint(x, y))
-          && event.type == PointerEvent::Type::Button
-          && event.pressed) {
-        if (event.button == BTN_MIDDLE) {
-          defer(host->id, tab, WorkspaceCommand::Close);
-          return;
-        }
-        if (event.button == BTN_RIGHT) {
-          tabMenu(*host, tab, x, y);
-          return;
-        }
-        if (event.button == BTN_LEFT) {
-          host->pressedTab = tab;
-          host->pressX = x;
-          host->pressY = y;
-          float bx = 0, by = 0;
-          Node::absolutePosition(button, bx, by);
-          host->grabX = x - bx;
-          host->grabY = y - by;
-          return;
-        }
-      }
-    }
-    if (event.type == PointerEvent::Type::Button
-        && event.pressed
-        && event.button == BTN_LEFT
-        && host->tabScroll->containsScenePoint(x, y)) {
-      bool child = host->newTabButton->containsScenePoint(x, y);
-      for (const auto& [tab, button] : host->buttons) {
-        (void)tab;
-        float bx = 0, by = 0;
-        Node::absolutePosition(button, bx, by);
-        child |= x >= bx && x <= bx + button->width();
-      }
-      if (!child) {
-        host->stripMove.press(event.serial, x, y);
-        return;
-      }
-    }
-    dispatch(host->dispatcher, event);
+  if (stripPointer(*host, event, x, y)) {
     return;
   }
+  cancelTabHoverScroll(*host);
   if (host->previewDivider
       && host->previewDivider->visible()
       && host->previewDivider->containsScenePoint(x, y)
@@ -1521,6 +1486,7 @@ bool WorkspaceApplication::tabDragPointer(Host& host, const PointerEvent& event,
     return false;
   }
   const auto tab = *std::exchange(host.pressedTab, std::nullopt);
+  host.tabEdgeScroll.stop();
   if (!std::exchange(host.tabDrag, false)) {
     select(host.id, tab);
     return true;
@@ -1541,30 +1507,42 @@ bool WorkspaceApplication::tabDetaches(const Host& host, float y) const {
 }
 
 float WorkspaceApplication::tabEdgeScrollSpeed(const Host& host) const {
-  if (!host.pressedTab || !host.tabDrag || tabDetaches(host, host.pointerY) || !host.tabScroll->scrollable()) {
-    return 0;
+  if (!host.tabScroll || !host.tabScroll->scrollable()) {
+    return 0.0F;
   }
-  float left = 0, top = 0;
+  if (host.tabDrag) {
+    if (!host.pressedTab || tabDetaches(host, host.pointerY)) {
+      return 0.0F;
+    }
+  } else if (
+      host.pressedTab || !host.tabScroll->visible() || !host.tabScroll->containsScenePoint(host.pointerX, host.pointerY)
+  ) {
+    return 0.0F;
+  }
+  float left = 0.0F;
+  float top = 0.0F;
   Node::absolutePosition(host.tabScroll, left, top);
   const float right = left + host.tabScroll->width();
+  const float edgeZone = host.tabDrag ? kTabEdgeZone : std::min(kTabEdgeZone, host.tabScroll->width() * 0.35F);
+  if (edgeZone <= 0.0F) {
+    return 0.0F;
+  }
   const float offset = host.tabScroll->scrollOffset();
   // Faster the nearer the pointer is to the end, and at full speed past it. Nothing once the bar is at that end,
   // so the timer stops instead of relaying out the window with nothing to scroll.
-  if (host.pointerX < left + kTabEdgeZone) {
-    return offset <= 0.0F
-        ? 0.0F
-        : -kTabEdgeStep * std::clamp((left + kTabEdgeZone - host.pointerX) / kTabEdgeZone, 0.0F, 1.0F);
+  if (host.pointerX < left + edgeZone) {
+    return offset <= 0.0F ? 0.0F : -kTabEdgeStep * std::clamp((left + edgeZone - host.pointerX) / edgeZone, 0.0F, 1.0F);
   }
-  if (host.pointerX > right - kTabEdgeZone) {
+  if (host.pointerX > right - edgeZone) {
     return offset >= host.tabScroll->maxScrollOffset()
         ? 0.0F
-        : kTabEdgeStep * std::clamp((host.pointerX - right + kTabEdgeZone) / kTabEdgeZone, 0.0F, 1.0F);
+        : kTabEdgeStep * std::clamp((host.pointerX - right + edgeZone) / edgeZone, 0.0F, 1.0F);
   }
-  return 0;
+  return 0.0F;
 }
 
 void WorkspaceApplication::updateTabEdgeScroll(Host& host) {
-  if (tabEdgeScrollSpeed(host) == 0) {
+  if (tabEdgeScrollSpeed(host) == 0.0F) {
     host.tabEdgeScroll.stop();
     return;
   }
@@ -1573,14 +1551,129 @@ void WorkspaceApplication::updateTabEdgeScroll(Host& host) {
   }
   host.tabEdgeScroll.startRepeating(std::chrono::milliseconds(16), [this, &host] {
     const float speed = tabEdgeScrollSpeed(host);
-    if (speed == 0) {
+    if (speed == 0.0F) {
       host.tabEdgeScroll.stop();
+      host.tabHoverDirection = 0;
       return;
     }
     auto* scroll = host.tabScroll;
     scroll->requestScrollToOffset(std::clamp(scroll->scrollOffset() + speed, 0.0F, scroll->maxScrollOffset()));
     host.surface.requestLayout();
   });
+}
+
+void WorkspaceApplication::updateTabHoverScroll(Host& host) {
+  if (host.tabDrag) {
+    return;
+  }
+  const float speed = tabEdgeScrollSpeed(host);
+  if (speed == 0.0F) {
+    cancelTabHoverScroll(host);
+    return;
+  }
+  const int direction = speed < 0.0F ? -1 : 1;
+  if (host.tabEdgeScroll.active()) {
+    if (host.tabHoverDirection == direction) {
+      return;
+    }
+    cancelTabHoverScroll(host);
+  } else if (host.tabHoverDelay.active()) {
+    if (host.tabHoverDirection == direction) {
+      return;
+    }
+    host.tabHoverDelay.stop();
+  }
+  host.tabHoverDirection = direction;
+  host.tabHoverDelay.start(kTabHoverDwellDelay, [this, &host] {
+    if (tabEdgeScrollSpeed(host) == 0.0F) {
+      cancelTabHoverScroll(host);
+      return;
+    }
+    updateTabEdgeScroll(host);
+  });
+}
+
+void WorkspaceApplication::cancelTabHoverScroll(Host& host) {
+  host.tabHoverDelay.stop();
+  host.tabHoverDirection = 0;
+  if (!host.tabDrag) {
+    host.tabEdgeScroll.stop();
+  }
+}
+
+bool WorkspaceApplication::stripPointer(Host& host, const PointerEvent& event, float x, float y) {
+  if (!host.strip || !host.strip->visible() || !host.strip->containsScenePoint(x, y)) {
+    return false;
+  }
+  host.pointerPage = 0;
+  if (event.type == PointerEvent::Type::Button && event.pressed) {
+    cancelTabHoverScroll(host);
+  }
+  if (event.type == PointerEvent::Type::Axis
+      && host.tabScroll
+      && host.tabScroll->scrollable()
+      && host.tabScroll->containsScenePoint(x, y)) {
+    cancelTabHoverScroll(host);
+    if (event.axis == WL_POINTER_AXIS_VERTICAL_SCROLL) {
+      auto horizontal = event;
+      horizontal.axis = WL_POINTER_AXIS_HORIZONTAL_SCROLL;
+      dispatch(host.dispatcher, horizontal);
+      return true;
+    }
+  }
+  if (event.type == PointerEvent::Type::Enter || event.type == PointerEvent::Type::Motion) {
+    updateTabHoverScroll(host);
+  }
+  for (const auto& [tab, button] : host.buttons) {
+    if (host.tabScroll
+        && host.tabScroll->containsScenePoint(x, y)
+        && button->containsScenePoint(x, y)
+        && (event.button == BTN_MIDDLE
+            || !host.closeButtons.at(tab).first->visible()
+            || !host.closeButtons.at(tab).first->containsScenePoint(x, y))
+        && event.type == PointerEvent::Type::Button
+        && event.pressed) {
+      if (event.button == BTN_MIDDLE) {
+        defer(host.id, tab, WorkspaceCommand::Close);
+        return true;
+      }
+      if (event.button == BTN_RIGHT) {
+        tabMenu(host, tab, x, y);
+        return true;
+      }
+      if (event.button == BTN_LEFT) {
+        host.pressedTab = tab;
+        host.pressX = x;
+        host.pressY = y;
+        float bx = 0.0F;
+        float by = 0.0F;
+        Node::absolutePosition(button, bx, by);
+        host.grabX = x - bx;
+        host.grabY = y - by;
+        return true;
+      }
+    }
+  }
+  if (event.type == PointerEvent::Type::Button
+      && event.pressed
+      && event.button == BTN_LEFT
+      && host.tabScroll
+      && host.tabScroll->containsScenePoint(x, y)) {
+    bool child = host.newTabButton && host.newTabButton->containsScenePoint(x, y);
+    for (const auto& [tab, button] : host.buttons) {
+      (void)tab;
+      float bx = 0.0F;
+      float by = 0.0F;
+      Node::absolutePosition(button, bx, by);
+      child |= x >= bx && x <= bx + button->width();
+    }
+    if (!child) {
+      host.stripMove.press(event.serial, x, y);
+      return true;
+    }
+  }
+  dispatch(host.dispatcher, event);
+  return true;
 }
 
 std::size_t WorkspaceApplication::tabDropIndex(const Host& host, luciole::TabId tab, float x) {
@@ -1731,6 +1824,8 @@ void WorkspaceApplication::rebuildStrip(Host& host, const luciole::TabWindow& wi
   if (host.dispatcher.pointerCaptured() && !host.pointerPage) {
     host.dispatcher.cancelPointerCapture();
   }
+  cancelTabHoverScroll(host);
+  host.tabEdgeScroll.stop();
   if (host.strip) {
     auto removed = host.root->removeChild(host.strip);
   }

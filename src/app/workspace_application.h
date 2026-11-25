@@ -60,8 +60,10 @@ class WorkspaceApplication {
     Flex* tabGhost = nullptr;
     Label* tabGhostLabel = nullptr;
     Box* tabDropMarker = nullptr;
-    // Scrolls the tab bar while a dragged tab is held near either end of it.
+    // Scrolls the tab bar while a dragged tab or hovered pointer is held near either end of it.
     Timer tabEdgeScroll;
+    Timer tabHoverDelay;
+    int tabHoverDirection = 0;
     // A left press on empty tab strip, until it becomes a window move.
     WindowMoveGesture stripMove;
     bool tabDrag = false, resizing = false, closed = false;
@@ -143,10 +145,16 @@ private:
   static std::size_t tabDropIndex(const Host& host, luciole::TabId tab, float x);
   // True when a tab of `host` dropped at `y` opens in a new window rather than moving within the strip.
   bool tabDetaches(const Host& host, float y) const;
-  // How far the tab bar scrolls per step while a dragged tab is held near its ends; 0 elsewhere.
+  // How far the tab bar scrolls per step while a dragged tab or hovered pointer is held near its ends; 0 elsewhere.
   float tabEdgeScrollSpeed(const Host& host) const;
   // Starts or stops scrolling the tab bar for the dragged tab's position.
   void updateTabEdgeScroll(Host& host);
+  // Starts the dwell timer for edge-hover scrolling.
+  void updateTabHoverScroll(Host& host);
+  // Cancels pending dwell delay or active edge-hover scroll.
+  void cancelTabHoverScroll(Host& host);
+  // Handles pointer events over the tab strip. Returns true when consumed.
+  bool stripPointer(Host& host, const PointerEvent& event, float x, float y);
   // Adds the dragged tab's copy and its drop marker to the window's scene.
   static void buildTabDrag(Host& host);
   // Shows the dragged tab's copy under the pointer and, while it would reorder, the marker where it lands.
