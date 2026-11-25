@@ -510,7 +510,12 @@ void BrowserPage::focusChanged(InputArea* focused) {
 bool BrowserPage::completeLocationOnTab(std::uint32_t modifiers) { return m_locationBar.completeOnTab(modifiers); }
 bool BrowserPage::sidebarKey(const KeyboardEvent& event) { return m_sidebar.key(event); }
 bool BrowserPage::sidebarOverlays(float x, float y) const { return !overlay() && m_sidebar.drawerContains(x, y); }
-void BrowserPage::prepareSidebar(float width) { m_sidebar.prepareWidth(width); }
+void BrowserPage::prepareSidebar(float width) {
+  m_sidebar.prepareWidth(width);
+  // The window arranges the sidebar before this page's layoutFrame(): rebuild a changed Places list now, so the
+  // new rows are arranged and drawn in this frame instead of waiting for the next one.
+  m_sidebar.invalidate();
+}
 void BrowserPage::arrangeSidebar(Renderer& renderer, float top, float height) {
   m_sidebar.arrange(renderer, top, height);
 }
@@ -1279,7 +1284,11 @@ bool BrowserPage::shortcutKey(const KeyboardEvent& event) {
   if (!editing && (m_detailsHeader.menuKey(event) || m_fileKeys.commandKey(event))) {
     return true;
   }
-  if (!editing && dispatchShortcut(event, {Action::Grid, Action::List, Action::Miller, Action::ShowHidden})) {
+  // View chords cannot be plain text keys, so they switch the view even while typing in a field.
+  if (dispatchShortcut(event, {Action::Grid, Action::List, Action::Miller})) {
+    return true;
+  }
+  if (!editing && dispatchShortcut(event, {Action::ShowHidden})) {
     return true;
   }
   if (m_list != nullptr
@@ -1807,6 +1816,7 @@ void BrowserPage::leaveFolder() {
   }
   if (auto current = browser().model().snapshot().location; browser().up()) {
     revealOnReload({std::move(*current)});
+    focusFileList();
   }
 }
 
@@ -2064,7 +2074,8 @@ void BrowserPage::setViewMode(luciole::ViewMode mode) {
   if (mode == m_viewMode) {
     return;
   }
-  if (m_list != nullptr) {
+  // Taking focus from a text field would end its edit and drop the path being typed.
+  if (m_list != nullptr && !m_locationBar.textFocused()) {
     dispatcher().setFocus(m_list->focusArea());
   }
   if (m_folderView.saveViewMode(mode)) {
@@ -2512,7 +2523,8 @@ void BrowserPage::prepareFrame(bool, bool layout) {
 void BrowserPage::layoutFrame(Renderer& renderer) {
   UiPhaseScope phase(UiPhase::Layout);
   m_statusBar.layout(m_pageBounds.width);
-  auto placesFocus = m_sidebar.invalidate();
+  // Places changed while this frame was prepared, after the window arranged the sidebar: draw them in another frame.
+  const bool placesLate = m_sidebar.invalidate();
   m_dragDrop.applyScroll();
   m_sidebar.layout();
   m_locationBar.prepareLayout();
@@ -2550,7 +2562,7 @@ void BrowserPage::layoutFrame(Renderer& renderer) {
   const bool columnOrderChanged = m_detailsHeader.applyOrder();
   m_titlebar->setVisible(clientHeader);
   m_titlebar->setParticipatesInLayout(clientHeader);
-  const bool details = m_viewMode == luciole::ViewMode::List;
+  const bool details = m_viewMode == luciole::ViewMode::List && !browser().model().rows().empty();
   // List headers own their vertical insets so their labels and resize
   // markers are centered between the pane edge and the header rule.
   m_paneContentFrame->setPadding(
@@ -2581,8 +2593,11 @@ void BrowserPage::layoutFrame(Renderer& renderer) {
   m_dragDrop.layout(renderer);
   m_locationBar.layoutCompletions(renderer);
   m_thumbnails.endFrame();
-  m_sidebar.restoreFocus(std::move(placesFocus), m_popupSurface != nullptr || m_archiveController.open() || !m_active);
+  m_sidebar.restoreFocus(m_popupSurface != nullptr || m_archiveController.open() || !m_active);
   m_fileKeys.notifyStateChanged();
+  if (placesLate) {
+    m_surface->requestUpdate();
+  }
 }
 
 void BrowserPage::buildScene() {

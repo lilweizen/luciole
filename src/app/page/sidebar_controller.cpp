@@ -19,6 +19,7 @@
 #include "fs/file_metadata.h"
 #include "platform/desktop_integration.h"
 #include "render/animation/animation_manager.h"
+#include "ui/browser/action_shortcuts.h"
 #include "ui/browser/places_sidebar.h"
 #include "ui/builders.h"
 #include "ui/palette.h"
@@ -178,6 +179,12 @@ void SidebarController::configureCallbacks() {
   m_places->setContextCallback([this](const luciole::Bookmark& bookmark, float x, float y) {
     m_menus.openPlaceMenu(bookmark, x, y);
   });
+  m_places->setSeparatorContextCallback([this](std::size_t before, float x, float y) {
+    m_menus.openSeparatorMenu(before, x, y);
+  });
+  m_places->setSeparatorMoveCallback([this](std::size_t from, std::size_t to) {
+    (void)m_pins.moveSeparatorTo(from, to);
+  });
   m_places->setDragCallback([this](const luciole::Bookmark& bookmark) { m_drags.startPlaceDrag(bookmark); });
   m_places->setRenameCallback([this](const luciole::Bookmark& bookmark) { m_renamer.openPlaceRename(bookmark); });
   m_places->setDriveOpenCallback([this](const std::string& key) { openDrive(key); });
@@ -278,7 +285,9 @@ void SidebarController::openDriveMenu(const std::string& key, float x, float y) 
   if (drive == nullptr) {
     return;
   }
-  std::vector<ContextMenuControlEntry> entries{{.id = 1, .label = drive->root ? "Open" : "Mount and Open"}};
+  std::vector<ContextMenuControlEntry> entries{
+      {.id = 1, .label = drive->root || drive->activation ? "Open" : "Mount and Open"}
+  };
   if (drive->removal != luciole::DriveRemoval::None) {
     entries.push_back({.id = 2, .label = std::string(luciole::driveRemovalLabel(drive->removal))});
   }
@@ -314,8 +323,8 @@ void SidebarController::openDriveMenu(const std::string& key, float x, float y) 
   );
 }
 
-void SidebarController::pinFolders(std::vector<luciole::Bookmark> bookmarks, std::size_t before) {
-  if (!m_pins.add(std::move(bookmarks), before)) {
+void SidebarController::pinFolders(std::vector<luciole::Bookmark> bookmarks, std::size_t before, bool belowSeparator) {
+  if (!m_pins.add(std::move(bookmarks), before, belowSeparator)) {
     m_page.actionError(
         m_pins.busy() ? "Pins are being saved. Try again shortly." : "Reload valid pins before editing them."
     );
@@ -440,7 +449,7 @@ std::unique_ptr<Box> SidebarController::buildDropLine() {
 
 void SidebarController::hideDropLine() { m_placeDropLine->setVisible(false); }
 
-void SidebarController::showDropLine(Renderer& renderer, std::size_t slot) {
+void SidebarController::showDropLine(Renderer& renderer, luciole::PinSlot slot) {
   m_placeDropLine->setVisible(true);
   m_placeDropLine->arrange(renderer, m_places->dropLine(slot));
 }
@@ -481,21 +490,19 @@ void SidebarController::onFrame() {
 
 void SidebarController::updateDriveUsage() { m_places->updateDriveUsage(); }
 
-std::optional<InputDispatcher::TabFocusSnapshot> SidebarController::invalidate() {
-  std::optional<InputDispatcher::TabFocusSnapshot> placesFocus;
-  if (m_placesDirty) {
-    for (const Node* node = m_page.dispatcher().focusedArea(); node != nullptr; node = node->parent()) {
-      if (node == m_places) {
-        placesFocus = m_page.dispatcher().captureTabFocus();
-        break;
-      }
+bool SidebarController::invalidate() {
+  if (!m_placesDirty) {
+    return false;
+  }
+  for (const Node* node = m_page.dispatcher().focusedArea(); node != nullptr; node = node->parent()) {
+    if (node == m_places) {
+      m_placesFocus = m_page.dispatcher().captureTabFocus();
+      break;
     }
   }
-  if (m_placesDirty) {
-    m_placesDirty = false;
-    m_places->invalidate();
-  }
-  return placesFocus;
+  m_placesDirty = false;
+  m_places->invalidate();
+  return true;
 }
 
 void SidebarController::layout() {
@@ -505,9 +512,10 @@ void SidebarController::layout() {
   m_sidebarResize->setVisible(visible() && !m_state.compact());
   m_sidebarResize->setParticipatesInLayout(visible() && !m_state.compact());
   m_sidebarPanel->setExcludeSubtreeFromTabOrder(!visible());
-  m_toggle->setVisible(m_state.compact());
-  m_toggle->setParticipatesInLayout(m_state.compact());
-  m_toggle->setSelected(drawerOpen());
+  m_toggle->setSelected(visible());
+  m_toggle->setTooltip(
+      luciole::shortcutTooltip(visible() ? "Hide sidebar" : "Show sidebar", luciole::KeybindCommand::ToggleSidebar)
+  );
   const float sidebarWidth = static_cast<float>(std::min(m_sidebarWidth, maximumWidth()));
   m_places->setMinWidth(sidebarWidth);
   m_places->setMaxWidth(sidebarWidth);
@@ -517,8 +525,8 @@ void SidebarController::layoutResizeLine(Renderer& renderer) {
   m_sidebarResizeLine->arrange(renderer, {2.5F, 0, 1.0F, m_sidebarResize->height()});
 }
 
-void SidebarController::restoreFocus(std::optional<InputDispatcher::TabFocusSnapshot> focus, bool covered) {
-  if (focus) {
+void SidebarController::restoreFocus(bool covered) {
+  if (auto focus = std::exchange(m_placesFocus, std::nullopt)) {
     m_page.dispatcher().restoreTabFocus(std::move(*focus));
   }
   if (m_restorePlaceFocus && !covered) {

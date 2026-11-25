@@ -225,7 +225,7 @@ luciole::FileDropTarget DragDropController::externalDrop(float x, float y, const
                   finish(false);
                   return;
                 }
-                finish(m_pins.add(bookmarks, slot));
+                finish(m_pins.add(bookmarks, slot.before, slot.belowSeparator));
               },
           .preferred = luciole::DragAction::Copy,
           .copyOnly = true
@@ -307,23 +307,20 @@ std::optional<std::pair<luciole::Location, LayoutRect>> DragDropController::fore
   if (!m_page.visible() || !m_page.filePane().containsScenePoint(x, y) || m_page.overlay()) {
     return std::nullopt;
   }
+  // A file row drops into the shown folder, like empty space.
   if (const auto index = m_page.fileList()->visible() ? m_page.fileList()->itemAtScene(x, y) : std::nullopt) {
     const auto& rows = m_page.browser().model().rows();
-    if (*index >= rows.size()) {
+    const auto* entry = *index < rows.size() ? m_page.browser().model().entry(rows[*index]) : nullptr;
+    if (entry && !entry->symlink && entry->type == luciole::FileType::Directory) {
+      auto location = entry->location();
+      if (!luciole::transferLocationSupported(location)) {
+        return std::nullopt;
+      }
+      if (auto rect = m_page.fileList()->itemRect(*index)) {
+        return std::pair(std::move(location), *rect);
+      }
       return std::nullopt;
     }
-    const auto* entry = m_page.browser().model().entry(rows[*index]);
-    if (!entry || entry->symlink || entry->type != luciole::FileType::Directory) {
-      return std::nullopt;
-    }
-    auto location = entry->location();
-    if (!luciole::transferLocationSupported(location)) {
-      return std::nullopt;
-    }
-    if (auto rect = m_page.fileList()->itemRect(*index)) {
-      return std::pair(std::move(location), *rect);
-    }
-    return std::nullopt;
   }
   const auto& location = m_page.browser().model().snapshot().location;
   if (location && luciole::transferLocationSupported(*location) && m_page.browser().searchQuery().empty()) {
@@ -458,16 +455,15 @@ std::optional<DragDropController::DropTarget> DragDropController::dropTarget() c
     if (const auto index = m_page.millerView().columnAt(m_page.pointerX(), m_page.pointerY())) {
       const auto* grid = m_page.millerView().view(*index);
       const auto& model = m_miller.columns()[*index]->browser->model();
-      if (const auto row = grid->itemAtScene(m_page.pointerX(), m_page.pointerY())) {
-        if (*row < model.rows().size()) {
-          const auto* entry = model.entry(model.rows()[*row]);
-          if (entry && entry->type == luciole::FileType::Directory && !entry->symlink) {
-            if (auto location = entry->location(); validDropFolder(location)) {
-              return DropTarget{std::move(location), *grid->itemRect(*row), entry->id};
-            }
+      // A file row drops into the column's folder, like empty space; an invalid folder row denies.
+      if (const auto row = grid->itemAtScene(m_page.pointerX(), m_page.pointerY()); row && *row < model.rows().size()) {
+        const auto* entry = model.entry(model.rows()[*row]);
+        if (entry && entry->type == luciole::FileType::Directory && !entry->symlink) {
+          if (auto location = entry->location(); validDropFolder(location)) {
+            return DropTarget{std::move(location), *grid->itemRect(*row), entry->id};
           }
+          return std::nullopt;
         }
-        return std::nullopt;
       }
       const auto& folder = model.snapshot().location;
       if (folder && validDropFolder(*folder)) {
@@ -477,19 +473,18 @@ std::optional<DragDropController::DropTarget> DragDropController::dropTarget() c
     return std::nullopt;
   }
   if (m_page.fileList()->visible()) {
+    // A file row drops into the shown folder, like empty space; an invalid folder row denies.
     if (const auto index = m_page.fileList()->itemAtScene(m_page.pointerX(), m_page.pointerY())) {
       const auto& rows = m_page.browser().model().rows();
-      if (*index < rows.size()) {
-        const auto* entry = m_page.browser().model().entry(rows[*index]);
-        if (entry != nullptr && entry->type == luciole::FileType::Directory && !entry->symlink) {
-          if (auto location = entry->location(); validDropFolder(location)) {
-            if (const auto rect = m_page.fileList()->itemRect(*index)) {
-              return DropTarget{std::move(location), *rect, entry->id};
-            }
+      const auto* entry = *index < rows.size() ? m_page.browser().model().entry(rows[*index]) : nullptr;
+      if (entry != nullptr && entry->type == luciole::FileType::Directory && !entry->symlink) {
+        if (auto location = entry->location(); validDropFolder(location)) {
+          if (const auto rect = m_page.fileList()->itemRect(*index)) {
+            return DropTarget{std::move(location), *rect, entry->id};
           }
         }
+        return std::nullopt;
       }
-      return std::nullopt;
     }
   }
   const auto& location = m_page.browser().model().snapshot().location;
@@ -499,7 +494,7 @@ std::optional<DragDropController::DropTarget> DragDropController::dropTarget() c
   return std::nullopt;
 }
 
-std::optional<std::size_t> DragDropController::pinDropSlot() const {
+std::optional<luciole::PinSlot> DragDropController::pinDropSlot() const {
   if (!m_drag || !m_pins.editable() || !m_sidebar.visible()) {
     return std::nullopt;
   }
@@ -827,6 +822,6 @@ void DragDropController::finishDrag() {
     };
     m_transferController.receiveDrop({std::move(sources), false}, target->location, std::move(options), [](bool) {});
   } else if (slot) {
-    m_sidebar.pinFolders(drag.bookmarks, *slot);
+    m_sidebar.pinFolders(drag.bookmarks, slot->before, slot->belowSeparator);
   }
 }

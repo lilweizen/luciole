@@ -9,6 +9,7 @@
 #include "app/window_move_gesture.h"
 #include "browser/tab_workspace.h"
 #include "config/state_store.h"
+#include "core/timer_manager.h"
 #include "thumbnails/thumbnail_service.h"
 #include "ui/palette.h"
 
@@ -53,6 +54,14 @@ class WorkspaceApplication {
     luciole::TabId chromeOwner = 0;
     std::optional<luciole::TabId> pressedTab;
     float pressX = 0, pressY = 0;
+    // Where the press landed inside the pressed tab, so its dragged copy keeps that point under the pointer.
+    float grabX = 0, grabY = 0;
+    // A dragged tab's copy that follows the pointer, and the marker where it will land.
+    Flex* tabGhost = nullptr;
+    Label* tabGhostLabel = nullptr;
+    Box* tabDropMarker = nullptr;
+    // Scrolls the tab bar while a dragged tab is held near either end of it.
+    Timer tabEdgeScroll;
     // A left press on empty tab strip, until it becomes a window move.
     WindowMoveGesture stripMove;
     bool tabDrag = false, resizing = false, closed = false;
@@ -128,6 +137,20 @@ private:
   void saveWindows(std::vector<luciole::SavedWindow> windows);
   // A pending move from an empty tab strip press; true when it consumed the event.
   bool stripMovePointer(Host& host, const PointerEvent& event);
+  // Motion and release of a press held on a tab: reorders it, or detaches it into a new window. True when handled.
+  bool tabDragPointer(Host& host, const PointerEvent& event, float x, float y);
+  // The position `tab`, dropped at `x`, takes among the window's other tabs.
+  static std::size_t tabDropIndex(const Host& host, luciole::TabId tab, float x);
+  // True when a tab of `host` dropped at `y` opens in a new window rather than moving within the strip.
+  bool tabDetaches(const Host& host, float y) const;
+  // How far the tab bar scrolls per step while a dragged tab is held near its ends; 0 elsewhere.
+  float tabEdgeScrollSpeed(const Host& host) const;
+  // Starts or stops scrolling the tab bar for the dragged tab's position.
+  void updateTabEdgeScroll(Host& host);
+  // Adds the dragged tab's copy and its drop marker to the window's scene.
+  static void buildTabDrag(Host& host);
+  // Shows the dragged tab's copy under the pointer and, while it would reorder, the marker where it lands.
+  void layoutTabDrag(Host& host, Renderer& renderer) const;
   void tabMenu(Host& host, luciole::TabId tab, float x, float y);
   static Button::ButtonPalette closeTabPalette(ColorRole foreground);
   void rebuildStrip(Host& host, const luciole::TabWindow& window);

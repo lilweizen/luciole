@@ -382,6 +382,229 @@ namespace {
     dying->reload();
     pump.until([&] { return destroyed; });
   }
+  std::size_t row(const luciole::PinService& service, const luciole::Location& location) {
+    const auto found = std::ranges::find(service.bookmarks(), location, &luciole::Bookmark::location);
+    TEST_CHECK(found != service.bookmarks().end());
+    return static_cast<std::size_t>(found - service.bookmarks().begin());
+  }
+  void testSeparators(const Fixture& fixture) {
+    Pump pump;
+    const auto path = fixture.root / "separators/state.toml";
+    const auto shared = fixture.root / "separators/bookmarks";
+    const auto a = fixture.pin("sep-a");
+    const auto b = fixture.pin("sep-b");
+    const auto c = fixture.pin("sep-c");
+    write(shared, a.location.uri() + " sep-a\n" + b.location.uri() + " sep-b\n" + c.location.uri() + " sep-c\n");
+    luciole::PinService service(path, shared, {});
+    service.reload();
+    pump.ready(service);
+    const auto count = service.bookmarks().size();
+    TEST_CHECK(service.separators().empty());
+
+    // A separator sits in front of a row; never before the first, past the last or twice in one gap.
+    TEST_CHECK(service.addSeparator(row(service, b.location)));
+    // Shown before the write ends, since nothing else would redraw Places for a separator-only change.
+    TEST_CHECK(service.busy() && (service.separators() == std::vector{row(service, b.location)}));
+    pump.ready(service);
+    TEST_CHECK((service.separators() == std::vector{row(service, b.location)}));
+    TEST_CHECK(
+        !service.addSeparator(0) && !service.addSeparator(count) && !service.addSeparator(row(service, b.location))
+    );
+    TEST_CHECK(read(path).contains("place_separators") && !read(shared).contains("separator"));
+    luciole::PinService restarted(path, shared, {});
+    restarted.reload();
+    pump.ready(restarted);
+    TEST_CHECK((restarted.separators() == service.separators()));
+
+    // Moving a pin keeps the separator's row, so the pin crosses it.
+    const auto before = service.separators();
+    TEST_CHECK(service.move(c.location, row(service, a.location)));
+    pump.ready(service);
+    TEST_CHECK(service.separators() == before && row(service, c.location) < service.separators().front());
+    // Removing a pin keeps the separator in front of the same row.
+    const auto ahead = service.bookmarks()[service.separators().front()].location;
+    TEST_CHECK(service.remove(c.location));
+    pump.ready(service);
+    TEST_CHECK(service.bookmarks()[service.separators().front()].location == ahead);
+
+    // Moving and removing a separator.
+    const auto at = service.separators().front();
+    TEST_CHECK(service.moveSeparatorTo(at, at - 1));
+    pump.ready(service);
+    TEST_CHECK((service.separators() == std::vector{at - 1}));
+    TEST_CHECK(service.moveSeparatorTo(at - 1, at));
+    pump.ready(service);
+    TEST_CHECK((service.separators() == std::vector{at}));
+    TEST_CHECK(!service.moveSeparatorTo(at, 0) && !service.removeSeparator(at + 1));
+    TEST_CHECK(service.removeSeparator(at));
+    pump.ready(service);
+    TEST_CHECK(service.separators().empty() && !read(path).contains("place_separators"));
+
+    // Another instance changes only the separators. state.toml isn't watched, so this one still has the old ones:
+    // its next write reports the conflict and adopts the other instance's separators instead of overwriting them.
+    luciole::PinService other(path, shared, {});
+    other.reload();
+    pump.ready(other);
+    TEST_CHECK(other.addSeparator(row(other, b.location)));
+    pump.ready(other);
+    const auto theirs = read(path);
+    TEST_CHECK(service.separators().empty() && service.addSeparator(row(service, a.location)));
+    pump.ready(service);
+    TEST_CHECK(!service.error().empty() && read(path) == theirs);
+    TEST_CHECK((service.separators() == other.separators()));
+
+    // A write that can't read state.toml keeps showing the separators on record, not the unsaved ones.
+    const auto kept = service.separators();
+    write(path, "schema_version = 999\n");
+    TEST_CHECK(service.addSeparator(row(service, a.location)));
+    pump.until([&] { return !service.busy(); });
+    TEST_CHECK(!service.error().empty() && service.separators() == kept && read(path) == "schema_version = 999\n");
+  }
+  // With Network hidden, a gap on screen spans two rows: separators are placed, moved and drawn per shown gap.
+  void testSeparatorGaps(const Fixture& fixture) {
+    Pump pump;
+    const auto path = fixture.root / "gaps/state.toml";
+    const auto shared = fixture.root / "gaps/bookmarks";
+    const auto a = fixture.pin("gap-a");
+    write(shared, a.location.uri() + " gap-a\n");
+    luciole::PinService service(path, shared, {});
+    service.reload();
+    pump.ready(service);
+    const auto network = row(service, luciole::Location::network());
+    const auto after = row(service, a.location);
+    TEST_CHECK(network > 1 && after == network + 1);
+
+    const luciole::SeparatorGaps shown(service, true);
+    TEST_CHECK(shown.gap(0) == std::nullopt && shown.gap(network) == network && shown.free(network));
+    const luciole::SeparatorGaps hidden(service, false);
+    // The gap under the row above Network is the one above the next shown row; Network's own gap is gone.
+    TEST_CHECK(hidden.nextShown(network - 1) == after && hidden.previousShown(after) == network - 1);
+    TEST_CHECK(!hidden.free(network) && hidden.free(after));
+
+    // A separator saved in front of the hidden row is drawn above the next shown one, which then takes no other.
+    TEST_CHECK(service.addSeparator(network));
+    pump.ready(service);
+    const luciole::SeparatorGaps drawn(service, false);
+    TEST_CHECK(drawn.gap(network) == after && drawn.separatorAbove(after) == network && !drawn.free(after));
+    TEST_CHECK(luciole::SeparatorGaps(service, true).free(after));
+  }
+  // Pins dropped next to a separator land on the side of its line the drop line showed, and the separators stay with
+  // the rows that don't move.
+  void testSeparatorDrops(const Fixture& fixture) {
+    Pump pump;
+    const auto path = fixture.root / "drops/state.toml";
+    const auto shared = fixture.root / "drops/bookmarks";
+    const auto a = fixture.pin("drop-a");
+    const auto b = fixture.pin("drop-b");
+    const auto c = fixture.pin("drop-c");
+    const auto d = fixture.pin("drop-d");
+    const auto e = fixture.pin("drop-e");
+    write(
+        shared,
+        a.location.uri()
+            + " drop-a\n"
+            + b.location.uri()
+            + " drop-b\n"
+            + c.location.uri()
+            + " drop-c\n"
+            + d.location.uri()
+            + " drop-d\n"
+    );
+    luciole::PinService service(path, shared, {});
+    service.reload();
+    pump.ready(service);
+    const auto first = row(service, a.location);
+    // The pins from `a` on, with "|" for a separator, to compare whole layouts.
+    const auto layout = [&] {
+      std::string text;
+      for (std::size_t i = first; i < service.bookmarks().size(); ++i) {
+        if (std::ranges::contains(service.separators(), i)) {
+          text += "| ";
+        }
+        text += service.bookmarks()[i].label + " ";
+      }
+      return text;
+    };
+    const auto pin = [&](const luciole::Bookmark& place) { return service.bookmarks()[row(service, place.location)]; };
+    TEST_CHECK(service.addSeparator(row(service, c.location)));
+    pump.ready(service);
+    TEST_CHECK(layout() == "drop-a drop-b | drop-c drop-d ");
+
+    // Dropped below the line in front of c: b goes under it, in front of c.
+    TEST_CHECK(service.add({pin(b)}, row(service, c.location), true));
+    pump.ready(service);
+    TEST_CHECK(layout() == "drop-a | drop-b drop-c drop-d ");
+    // Dropped above the line it now sits under: b goes back over it.
+    TEST_CHECK(service.add({pin(b)}, row(service, b.location), false));
+    pump.ready(service);
+    TEST_CHECK(layout() == "drop-a drop-b | drop-c drop-d ");
+    // The row right under a separator, dragged elsewhere, leaves the separator in front of the row after it.
+    TEST_CHECK(service.add({pin(c)}, row(service, a.location)));
+    pump.ready(service);
+    TEST_CHECK(layout() == "drop-c drop-a drop-b | drop-d ");
+    // A new pin dropped below or above a line.
+    TEST_CHECK(service.add({e}, row(service, d.location), true));
+    pump.ready(service);
+    TEST_CHECK(layout() == "drop-c drop-a drop-b | drop-e drop-d ");
+    TEST_CHECK(service.add({pin(e)}, row(service, e.location), false));
+    pump.ready(service);
+    TEST_CHECK(layout() == "drop-c drop-a drop-b drop-e | drop-d ");
+    // Moving the only row of a group away empties it: its separator merges with the next one.
+    TEST_CHECK(service.addSeparator(row(service, a.location)));
+    pump.ready(service);
+    TEST_CHECK(service.addSeparator(row(service, b.location)));
+    pump.ready(service);
+    TEST_CHECK(layout() == "drop-c | drop-a | drop-b drop-e | drop-d ");
+    TEST_CHECK(service.add({pin(a)}, row(service, d.location), true));
+    pump.ready(service);
+    TEST_CHECK(layout() == "drop-c | drop-b drop-e | drop-a drop-d ");
+  }
+  void testSeparatorsFollowExternalChanges(const Fixture& fixture) {
+    Pump pump;
+    const auto path = fixture.root / "external/state.toml";
+    const auto shared = fixture.root / "external/bookmarks";
+    const auto a = fixture.pin("ext-a");
+    const auto b = fixture.pin("ext-b");
+    const auto c = fixture.pin("ext-c");
+    const auto d = fixture.pin("ext-d");
+    const auto line = [](const luciole::Bookmark& pin) { return pin.location.uri() + " " + pin.label + "\n"; };
+    write(shared, line(a) + line(b) + line(c) + line(d));
+    luciole::PinService service(path, shared, {});
+    service.reload();
+    pump.ready(service);
+    TEST_CHECK(service.addSeparator(row(service, c.location)));
+    pump.ready(service);
+    const auto inFront = [&](const luciole::PinService& pins, const luciole::Bookmark& pin) {
+      return pins.separators() == std::vector{row(pins, pin.location)};
+    };
+    const auto restartedInFront = [&](const luciole::Bookmark& pin) {
+      luciole::PinService restarted(path, shared, {});
+      restarted.reload();
+      pump.ready(restarted);
+      return inFront(restarted, pin);
+    };
+
+    // Another application unpins a place above the separator: the separator stays in front of c, now and after a
+    // restart, instead of keeping its row number and landing in front of d.
+    replace(shared, line(b) + line(c) + line(d));
+    service.reload();
+    pump.ready(service);
+    TEST_CHECK(inFront(service, c) && restartedInFront(c));
+    // ... unpins the place right below it: it moves to the next one still listed.
+    replace(shared, line(b) + line(d));
+    service.reload();
+    pump.ready(service);
+    TEST_CHECK(inFront(service, d) && restartedInFront(d));
+    // ... and reorders them: it stays in front of d wherever d goes.
+    replace(shared, line(d) + line(b));
+    service.reload();
+    pump.ready(service);
+    TEST_CHECK(inFront(service, d) && restartedInFront(d));
+    // A later write from this instance stores the moved separator.
+    TEST_CHECK(service.addSeparator(row(service, b.location)));
+    pump.ready(service);
+    TEST_CHECK(service.error().empty() && service.separators().size() == 2);
+  }
 } // namespace
 
 int main() {
@@ -390,6 +613,10 @@ int main() {
     testSharedDocument(fixture);
     testPlacesAndPins(fixture);
     testExistingNetworkLayout(fixture);
+    testSeparators(fixture);
+    testSeparatorGaps(fixture);
+    testSeparatorDrops(fixture);
+    testSeparatorsFollowExternalChanges(fixture);
     std::println("Shared bookmarks and Places checks passed");
     return 0;
   } catch (const std::exception& error) {

@@ -56,6 +56,8 @@ luciole config validate /path/to/config.toml
 
 File and folder artwork follows the desktop icon theme. Theme selection changes and edits to active SVG/PNG artwork refresh automatically. If desktop settings support is unavailable, Luciole uses the icon theme named by GTK settings.ini. Nix users need a fresh development shell after updating runtime dependencies.
 
+Luciole selects the theme's drawing for the displayed icon size, including display scaling. Size-specific SVGs can have different detail and spacing; large vector artwork is not substituted for a matching smaller drawing. Changing zoom can therefore change an icon's drawing as well as its size.
+
 Icon themes that declare `FollowsColorScheme=true` in their `index.theme` (Breeze, Tela, Colloid, and others) draw their recolorable parts with the `colors.toml` palette, as KDE apps do: folders take the primary color and monochrome icons the text color. They update when the palette changes. Other themes keep their own colors.
 
 ## Browser preferences
@@ -83,6 +85,7 @@ All keys below belong in `[browser]`. Dimensions are logical pixels unless state
 | `show_close_buttons` | `true` | Show the glyph close buttons on tabs, dialogs, panes, the preview and archives. Disable to hide them live; the window controls, Escape and Close/Cancel actions still close things |
 | `reduce_animations` | `false` | Skip animated transitions, such as file entries fading in as they scroll into Grid and List views, smooth scrolling and the sidebar drawer. Applies live |
 | `use_ssd` | `true` | Let the compositor draw the title bar and borders (server-side decoration) when it supports them. Disable to always draw Luciole's own (client-side decoration). Open windows switch live |
+| `color_scheme` | `"auto"` | `"auto"` uses Noctalia's current palette from `colors.toml` (the built-in dark palette without one); `"dark"` and `"light"` use that variant from `colors.toml`, or Luciole's built-in dark or light palette when the file has none (Noctalia versions that write only `[colors]`). Applies live |
 | `background_opacity` | `1.0` | Number from `0` (clear) to `1` (opaque) for the window background; tabs, toolbar, sidebar and file area share it. Menus and dialogs stay opaque |
 | `corner_radius_scale` | `1.0` | Number from `0` (square) to `2` (extra rounded) scaling every corner radius, like Noctalia's setting of the same name. Open windows, menus and dialogs update live |
 | `activation_mode` | `"double_click"` | `"single_click"`, `"double_click"` |
@@ -183,7 +186,7 @@ Chords use key names such as `Return`, `Escape`, `Tab`, `space`, `BackSpace`, `D
 
 User bookmarks live in `$XDG_CONFIG_HOME/gtk-3.0/bookmarks`, defaulting to `~/.config/gtk-3.0/bookmarks`, shared with Nemo, Nautilus and GTK file choosers. Each line contains a URI and an optional label separated by a space. The older `~/.gtk-bookmarks` is read as a fallback when the modern file has not been found; edits go to the modern path. Read-only or symlink-managed files can be displayed, but Luciole refuses edits that would replace a read-only or linked file. Old Luciole pins are not migrated.
 
-Built-in Places layout, optional last-window tab state and the last file picker folder remain in `$XDG_STATE_HOME/luciole/state.toml`, defaulting to `~/.local/state/luciole/state.toml`. Cached user rows there preserve their placement among built-ins; their contents always come from the shared bookmark file. Deleting a shared user bookmark removes it from Luciole even when an old cache row remains. Tab restoration is controlled by `browser.restore_last_window`.
+Built-in Places layout, Places separators, optional last-window tab state and the last file picker folder remain in `$XDG_STATE_HOME/luciole/state.toml`, defaulting to `~/.local/state/luciole/state.toml`. Cached user rows there preserve their placement among built-ins; their contents always come from the shared bookmark file. Deleting a shared user bookmark removes it from Luciole even when an old cache row remains. Tab restoration is controlled by `browser.restore_last_window`.
 
 Per-folder sort and view choices live in `$XDG_STATE_HOME/luciole/folder_views.toml`, one `[[folders]]` row per folder URI with optional `sort_by`, `sort_descending`, `directories_first`, `hidden_last` and `view_mode` (`"list"` or `"grid"`) fields. Invalid rows are skipped. Luciole replaces an unreadable file with its in-memory settings the next time a folder's settings change. It keeps the 4096 most recently changed folders, or fewer when their rows would make the file larger than 240 KiB; the least recently changed go first.
 
@@ -191,7 +194,7 @@ Custom bookmark icons are saved as an optional `icon` field on the matching book
 
 Thumbnails use the shared `$XDG_CACHE_HOME/thumbnails/` cache. The default cache root is `~/.cache`. Custom actions live in the [Scripts directory](scripts.md).
 
-An optional `colors.toml` beside the settings files supplies the supported Noctalia palette handoff. The installed template is `share/luciole/templates/colors.toml`; UI-scale preferences remain planned. See [Packaging](../../PACKAGING.md#configuration-and-writable-data) for the complete ownership and installation notes.
+An optional `colors.toml` beside the settings files supplies the Noctalia palette handoff; Noctalia's built-in [Luciole template](https://docs.noctalia.dev/noctalia/templates/official/luciole/) writes it. UI-scale preferences remain planned. See [Packaging](../../PACKAGING.md#configuration-and-writable-data) for the complete ownership and installation notes.
 
 Text follows the system font: the family and size from GNOME's `font-name` setting, or `gtk-font-name` in `~/.config/gtk-3.0/settings.ini` (then `gtk-4.0`), as written by GNOME Settings or nwg-look. The size sets body text (11 pt is about 14.7 px) and other text keeps its proportions; without a system font, Luciole uses Fontconfig's `sans-serif` at 14 px. GNOME's Large Text (`text-scaling-factor`) multiplies it. Changes apply to open windows right away, including symlinked `settings.ini` files. Icons keep their size.
 

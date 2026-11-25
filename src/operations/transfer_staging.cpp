@@ -9,10 +9,8 @@
 #include <fcntl.h>
 #include <format>
 #include <glib.h>
-#include <linux/fs.h>
 #include <optional>
 #include <set>
-#include <sys/syscall.h>
 #include <unistd.h>
 #include <utility>
 
@@ -150,6 +148,16 @@ namespace luciole::transfer {
       );
     }
 
+    void
+    checkReplacementSource(const Source& source, TransferAction action, const std::optional<struct stat>& replace) {
+      if (action != TransferAction::Move
+          && replace
+          && S_ISDIR(replace->st_mode)
+          && (sameIdentity(source.metadata, *replace) || hasAncestor(source.parent.get(), *replace))) {
+        throwFileError(FileErrorKind::WouldRecurse, "Replacement would remove the transfer source.");
+      }
+    }
+
     TransferResult transferItem(Node& node, int destination, TransferAction action, Work& work) {
       auto& source = node.source;
       const auto& binding = *node.destination;
@@ -199,11 +207,7 @@ namespace luciole::transfer {
               work.check();
               requireUnchanged(source.metadata, info(source.parent.get(), source.name));
               requireUnchanged(*replace, info(destination, target));
-              if (::syscall(
-                      SYS_renameat2, source.parent.get(), source.name.c_str(), destination, target.c_str(),
-                      RENAME_EXCHANGE
-                  )
-                  != 0) {
+              if (renameExchange(source.parent.get(), source.name.c_str(), destination, target.c_str()) != 0) {
                 if (errno != EXDEV) {
                   fail("Could not exchange moved item");
                 }
@@ -236,10 +240,7 @@ namespace luciole::transfer {
           if (work.recordMove) {
             historyItem = Fd(::openat(source.parent.get(), source.name.c_str(), O_PATH | O_NOFOLLOW | O_CLOEXEC));
           }
-          if (::syscall(
-                  SYS_renameat2, source.parent.get(), source.name.c_str(), destination, target.c_str(), RENAME_NOREPLACE
-              )
-              == 0) {
+          if (renameNoReplace(source.parent.get(), source.name.c_str(), destination, target.c_str()) == 0) {
             work.note(info(destination, target));
             result.outcome = Moved;
             result.destination = binding.location.child(target);
@@ -313,7 +314,6 @@ namespace luciole::transfer {
               // like cp and GIO.
               synchronize(stage.fd());
             }
-            const auto flags = replace ? RENAME_EXCHANGE : RENAME_NOREPLACE;
             auto copyProof = action != TransferAction::Move && work.prepareCopy
                 ? work.prepareCopy(
                       source.index, binding.location.child(target), destination, stage.fd(), replace.has_value()
@@ -325,7 +325,10 @@ namespace luciole::transfer {
                   )
                 : nullptr;
             work.check();
-            if (::syscall(SYS_renameat2, stage.fd(), "item", destination, target.c_str(), flags) != 0) {
+            checkReplacementSource(source, action, replace);
+            const auto placed = replace ? renameExchange(stage.fd(), "item", destination, target.c_str())
+                                        : renameNoReplace(stage.fd(), "item", destination, target.c_str());
+            if (placed != 0) {
               if (errno == EEXIST || (replace && errno == ENOENT)) {
                 replace.reset();
                 if (!chooseTarget(
@@ -340,7 +343,7 @@ namespace luciole::transfer {
             }
             published = true;
             result.destination = binding.location.child(target);
-            if (replace && !sameContent(*replace, info(stage.fd(), "item"))) {
+            if (replace && !sameRenamedRevision(*replace, info(stage.fd(), "item"), true)) {
               stage.retain();
               throwFileError(
                   FileErrorKind::Changed, "The previous destination changed and was retained in " + stage.name()

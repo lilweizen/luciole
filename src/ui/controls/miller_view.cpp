@@ -426,11 +426,14 @@ void MillerView::doLayout(Renderer& renderer) {
     const auto& snapshot = model.snapshot();
     loadPending = loadPending || snapshot.status == luciole::DirectoryStatus::Idle;
     const bool empty = model.rows().empty();
+    const bool network = snapshot.location && snapshot.location->isNetworkDiscovery();
     const bool deviceRoot = snapshot.location && snapshot.location->isDeviceRoot();
+    const bool loading =
+        snapshot.status == luciole::DirectoryStatus::Loading || snapshot.status == luciole::DirectoryStatus::Idle;
     view.notice->setText(
-        snapshot.status == luciole::DirectoryStatus::Loading || snapshot.status == luciole::DirectoryStatus::Idle
-            ? "Loading…"
+        loading              ? (network ? "Finding network locations…" : "Loading…")
             : snapshot.error ? snapshot.error->message
+            : network        ? "No network locations found"
             : deviceRoot     ? "Device locked or transfer disabled"
                              : "This folder is empty"
     );

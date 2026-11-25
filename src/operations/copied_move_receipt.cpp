@@ -1,14 +1,13 @@
 #include "operations/copied_move_receipt.h"
 
+#include "fs/posix_fd.h"
 #include "operations/history_mount.h"
 #include "operations/history_revisions.h"
 #include "operations/transfer_staging.h"
 
 #include <algorithm>
 #include <fcntl.h>
-#include <linux/fs.h>
 #include <set>
-#include <sys/syscall.h>
 #include <unistd.h>
 
 namespace {
@@ -110,6 +109,30 @@ struct luciole::CopiedMoveReceipt::State {
   std::vector<std::shared_ptr<const CopyEffect>> restored;
   std::uint64_t generation = 0;
 };
+
+std::shared_ptr<const luciole::MoveReceipt> luciole::CopiedMoveReceipt::withoutPredecessors() const {
+  if (m_state->dependent && std::ranges::any_of(m_state->destinations->m_effects, [](const auto& effect) {
+        return effect->m_previous != nullptr;
+      })) {
+    return {};
+  }
+  auto native = MoveReceipt::withoutPredecessors(m_state->native);
+  if (m_state->native && !native) {
+    return {};
+  }
+  auto state = std::make_shared<State>();
+  state->sources = m_state->sources;
+  state->destinations = CopyReceipt::withoutPredecessors(m_state->destinations);
+  state->native = std::move(native);
+  state->root = m_state->root;
+  state->dependent = m_state->dependent;
+  state->nativeLocations = m_state->nativeLocations;
+  state->locations = m_state->locations;
+  state->origins = m_state->origins;
+  state->restored = m_state->restored;
+  state->generation = m_state->generation;
+  return std::shared_ptr<const MoveReceipt>(new CopiedMoveReceipt(std::move(state), m_generation, m_undone));
+}
 
 bool luciole::CopiedMoveReceipt::usesMount(const HistoryMount& mount) const {
   return (m_state->sources && m_state->sources->usesMount(mount))
@@ -298,11 +321,7 @@ void luciole::CopiedMoveReceipt::restoreSources(
     parentAt(origin.location, origin.parent->get());
     vacant(origin.location, origin.parent->get());
     check(token);
-    if (::syscall(
-            SYS_renameat2, stage.fd(), "item", origin.parent->get(), origin.location.basename()->c_str(),
-            RENAME_NOREPLACE
-        )
-        != 0) {
+    if (renameNoReplace(stage.fd(), "item", origin.parent->get(), origin.location.basename()->c_str()) != 0) {
       throwErrno(errno);
     }
     applied = true;
