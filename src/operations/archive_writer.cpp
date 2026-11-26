@@ -16,6 +16,18 @@ namespace {
   using namespace luciole;
   using namespace luciole::archive_work;
   namespace fs = std::filesystem;
+  // libarchive compression-level value; zstd uses its own 1 to 22 scale, the other encoders 1 to 9.
+  const char* compressionLevel(ArchiveCompressionLevel level, bool zstd = false) {
+    switch (level) {
+    case ArchiveCompressionLevel::Fast:
+      return "1";
+    case ArchiveCompressionLevel::Balanced:
+      return zstd ? "3" : "6";
+    case ArchiveCompressionLevel::Maximum:
+      return zstd ? "19" : "9";
+    }
+    return zstd ? "3" : "6";
+  }
   int addFilter(struct archive* writer, ArchiveCompression compression, ArchiveCompressionLevel level) {
     switch (compression) {
     case ArchiveCompression::None:
@@ -25,27 +37,21 @@ namespace {
       if (status != ARCHIVE_OK) {
         return status;
       }
-      const char* value =
-          level == ArchiveCompressionLevel::Fast ? "1" : (level == ArchiveCompressionLevel::Maximum ? "9" : "6");
-      return archive_write_set_filter_option(writer, "gzip", "compression-level", value);
+      return archive_write_set_filter_option(writer, "gzip", "compression-level", compressionLevel(level));
     }
     case ArchiveCompression::Bzip2: {
       const auto status = archive_write_add_filter_bzip2(writer);
       if (status != ARCHIVE_OK) {
         return status;
       }
-      const char* value =
-          level == ArchiveCompressionLevel::Fast ? "1" : (level == ArchiveCompressionLevel::Maximum ? "9" : "6");
-      return archive_write_set_filter_option(writer, "bzip2", "compression-level", value);
+      return archive_write_set_filter_option(writer, "bzip2", "compression-level", compressionLevel(level));
     }
     case ArchiveCompression::Zstd: {
       const auto status = archive_write_add_filter_zstd(writer);
       if (status != ARCHIVE_OK) {
         return status;
       }
-      const char* value =
-          level == ArchiveCompressionLevel::Fast ? "1" : (level == ArchiveCompressionLevel::Maximum ? "19" : "3");
-      return archive_write_set_filter_option(writer, "zstd", "compression-level", value);
+      return archive_write_set_filter_option(writer, "zstd", "compression-level", compressionLevel(level, true));
     }
     case ArchiveCompression::Xz: {
       // Never register libarchive's external xz helper fallback. Fix encoder
@@ -57,9 +63,7 @@ namespace {
       if (status != ARCHIVE_OK) {
         return status;
       }
-      const char* value =
-          level == ArchiveCompressionLevel::Fast ? "1" : (level == ArchiveCompressionLevel::Maximum ? "9" : "6");
-      const auto opt = archive_write_set_filter_option(writer, "xz", "compression-level", value);
+      const auto opt = archive_write_set_filter_option(writer, "xz", "compression-level", compressionLevel(level));
       return opt == ARCHIVE_OK ? archive_write_set_filter_option(writer, "xz", "threads", "1") : opt;
     }
     }
@@ -71,9 +75,7 @@ namespace {
       if (status != ARCHIVE_OK) {
         return status;
       }
-      const char* value =
-          level == ArchiveCompressionLevel::Fast ? "1" : (level == ArchiveCompressionLevel::Maximum ? "9" : "6");
-      return archive_write_set_format_option(writer, "zip", "compression-level", value);
+      return archive_write_set_format_option(writer, "zip", "compression-level", compressionLevel(level));
     }
     if (format != ArchiveFormat::SevenZip) {
       return archive_write_set_format_pax_restricted(writer);
@@ -86,9 +88,7 @@ namespace {
       status = archive_write_set_format_option(writer, "7zip", "compression", "lzma2");
     }
     if (status == ARCHIVE_OK) {
-      const char* value =
-          level == ArchiveCompressionLevel::Fast ? "1" : (level == ArchiveCompressionLevel::Maximum ? "9" : "6");
-      status = archive_write_set_format_option(writer, "7zip", "compression-level", value);
+      status = archive_write_set_format_option(writer, "7zip", "compression-level", compressionLevel(level));
     }
     if (status == ARCHIVE_OK) {
       status = archive_write_set_format_option(writer, "7zip", "threads", "1");
