@@ -664,12 +664,17 @@ namespace {
     const auto output = fixture.root / "created-encrypted.zip";
     write(source, "encrypted payload");
     luciole::ArchiveService service;
-    TEST_CHECK(!service.compress({location(source)}, location(output), luciole::ArchiveFormat::Tar, "test password"));
+    constexpr auto balanced = luciole::ArchiveCompressionLevel::Balanced;
     TEST_CHECK(
-        !service.compress({location(source)}, location(output), luciole::ArchiveFormat::Zip, std::string(1025, 'x'))
+        !service.compress({location(source)}, location(output), luciole::ArchiveFormat::Tar, balanced, "test password")
     );
+    TEST_CHECK(!service.compress(
+        {location(source)}, location(output), luciole::ArchiveFormat::Zip, balanced, std::string(1025, 'x')
+    ));
     TEST_CHECK(!fs::exists(output));
-    TEST_CHECK(service.compress({location(source)}, location(output), luciole::ArchiveFormat::Zip, "test password"));
+    TEST_CHECK(
+        service.compress({location(source)}, location(output), luciole::ArchiveFormat::Zip, balanced, "test password")
+    );
     wait(service, pump);
     TEST_CHECK(!service.error() && read(source) == "encrypted payload");
     // Read independently through the system provider; the writer must not emit plaintext ZIP data.
@@ -1013,7 +1018,9 @@ namespace {
       }
       TEST_CHECK(format->compression == item.compression && format->suffix == item.suffix);
       luciole::ArchiveService service;
-      TEST_CHECK(!service.compress({location(source)}, location(path), item.format, "not supported"));
+      TEST_CHECK(!service.compress(
+          {location(source)}, location(path), item.format, luciole::ArchiveCompressionLevel::Balanced, "not supported"
+      ));
       TEST_CHECK(service.compress({location(source)}, location(path), item.format));
       wait(service, pump);
       TEST_CHECK(!service.error());
@@ -1947,7 +1954,8 @@ esac
     );
     luciole::ArchiveService passwordService;
     TEST_CHECK(!passwordService.compress(
-        {location(fixture.root / "unused")}, location(fixture.root / "password.7z"), format->format, "unsupported"
+        {location(fixture.root / "unused")}, location(fixture.root / "password.7z"), format->format,
+        luciole::ArchiveCompressionLevel::Balanced, "unsupported"
     ));
     const std::vector<std::vector<Entry>> rejected{
         {{"../sevenzip-escaped", "bad", {}}},
@@ -2017,7 +2025,10 @@ esac
       const auto archive = fixture.root / "xz-writer.tar.xz";
       write(source, "independent reader");
       luciole::ArchiveService service;
-      TEST_CHECK(!service.compress({location(source)}, location(archive), format->format, "unsupported"));
+      TEST_CHECK(!service.compress(
+          {location(source)}, location(archive), format->format, luciole::ArchiveCompressionLevel::Balanced,
+          "unsupported"
+      ));
       TEST_CHECK(service.compress({location(source)}, location(archive), format->format));
       wait(service, pump);
       TEST_CHECK(!service.error());
@@ -2274,7 +2285,7 @@ esac
             {location(source)}, location(fixture.root / "failed-output"), format.format,
             luciole::ArchiveCompressionLevel::Balanced, {}, cancel, progress, passwords
         );
-        (void)luciole::archive_work::cleanup(std::vector<std::string>{prepared.stage});
+        (void)luciole::archive_work::cleanup({prepared.stage});
       } catch (const std::exception&) {
         failed = true;
       }

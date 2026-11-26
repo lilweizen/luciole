@@ -79,7 +79,6 @@ namespace luciole {
         std::vector<Location> sources, Location destinationFile, ArchiveFormat format,
         ArchiveCompressionLevel level = ArchiveCompressionLevel::Balanced, std::string password = {}
     );
-    bool compress(std::vector<Location> sources, Location destinationFile, ArchiveFormat format, std::string password);
     // `expected` is a catalog of `source` read earlier, by this or another instance; extraction fails when the
     // archive no longer matches it. Without one, the catalog this instance read is used.
     bool extract(

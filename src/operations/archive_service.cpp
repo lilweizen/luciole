@@ -316,13 +316,6 @@ bool luciole::ArchiveService::compress(
       std::move(passwords)
   );
 }
-bool luciole::ArchiveService::compress(
-    std::vector<Location> sources, Location destination, ArchiveFormat format, std::string password
-) {
-  return compress(
-      std::move(sources), std::move(destination), format, ArchiveCompressionLevel::Balanced, std::move(password)
-  );
-}
 bool luciole::ArchiveService::extract(
     Location source, Location destination, std::vector<std::string> selected,
     std::shared_ptr<const ArchiveCatalog> expected
