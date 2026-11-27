@@ -2131,7 +2131,8 @@ void BrowserPage::applyViewMode() {
 
 float BrowserPage::gridHeight() const {
   const auto& location = browser().model().snapshot().location;
-  const bool context = !browser().searchQuery().empty() || (location && location->isTrash());
+  const bool context =
+      (browser().searchRecursive() && !browser().searchQuery().empty()) || (location && location->isTrash());
   return m_viewMode == luciole::ViewMode::Grid
       ? luciole::gridMetrics(gridIconSize(), m_savedSettings.presentation, context).height
       : luciole::fileRowHeight(m_savedSettings.presentation, context, rowIconSize());
