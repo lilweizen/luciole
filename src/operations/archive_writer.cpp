@@ -56,7 +56,7 @@ namespace {
       if (opt != ARCHIVE_OK) {
         return opt;
       }
-      // Small fixed worker count; zstd workers are cheap, and falling back keeps systems without MT zstd working.
+      // Fixed worker count, independent of the machine. libarchive before 3.6 rejects the option; stay single-threaded.
       if (const auto threads = archive_write_set_filter_option(writer, "zstd", "threads", "4"); threads != ARCHIVE_OK) {
         if (threads == ARCHIVE_FATAL) {
           return threads;
