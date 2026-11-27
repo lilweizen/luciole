@@ -978,15 +978,6 @@ std::optional<luciole::FileTooltipTarget> BrowserPage::fileTooltipAt(float x, fl
   if (!bounds || *index >= controller->model().rows().size()) {
     return std::nullopt;
   }
-  if (m_viewMode == luciole::ViewMode::Grid) {
-    float centerX = 0, centerY = 0;
-    view->absoluteAnchorForIndex(*index, centerX, centerY);
-    if (!m_gridAdapter.itemHitTest(
-            *index, x - centerX + bounds->width * 0.5F, y - centerY + gridHeight() * 0.5F, bounds->width, gridHeight()
-        )) {
-      return std::nullopt;
-    }
-  }
   const auto* entry = controller->model().entry(controller->model().rows()[*index]);
   if (!entry) {
     return std::nullopt;
