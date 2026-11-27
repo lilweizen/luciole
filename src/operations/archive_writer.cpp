@@ -51,7 +51,19 @@ namespace {
       if (status != ARCHIVE_OK) {
         return status;
       }
-      return archive_write_set_filter_option(writer, "zstd", "compression-level", compressionLevel(level, true));
+      const auto opt =
+          archive_write_set_filter_option(writer, "zstd", "compression-level", compressionLevel(level, true));
+      if (opt != ARCHIVE_OK) {
+        return opt;
+      }
+      // Small fixed worker count; zstd workers are cheap, and falling back keeps systems without MT zstd working.
+      if (const auto threads = archive_write_set_filter_option(writer, "zstd", "threads", "4"); threads != ARCHIVE_OK) {
+        if (threads == ARCHIVE_FATAL) {
+          return threads;
+        }
+        archive_clear_error(writer);
+      }
+      return ARCHIVE_OK;
     }
     case ArchiveCompression::Xz: {
       // Never register libarchive's external xz helper fallback. Fix encoder
